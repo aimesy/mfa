@@ -1,7 +1,4 @@
-# Active once this folder is the root of its own viewer repository (the
-# kcsc / kcsc-data split). Inside aimesy/mfa-data it sits under site/ and
-# GitHub ignores it. Enable Pages once in Settings -> Pages with
-# "Source: GitHub Actions".
+# Enable Pages once in Settings -> Pages with "Source: GitHub Actions".
 
 name: Deploy Pages
 

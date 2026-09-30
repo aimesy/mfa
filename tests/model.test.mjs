@@ -1,10 +1,12 @@
-// node site/tests/model.test.mjs
+// node tests/model.test.mjs
 // Unit checks for the CSV reader, the figure model and the outline geometry.
-// When the release files sit next to the site (the mfa-data checkout), it also
-// checks the model against the real release.
+// When an mfa-data checkout is present (MFA_DATA_ROOT, or ../mfa-data beside
+// this repository), it also checks the model against the real release.
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseCsv, parseCsvObjects, toCsv } from "../lib/csv.js";
 import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms } from "../lib/model.js";
 import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.js";
@@ -91,11 +93,12 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
   assert.ok(!isOutlineRed(0, 0, 0) && !isOutlineRed(128, 128, 128) && !isOutlineRed(255, 220, 0), "not ink, grey or yellow");
 }
 
-// The real release, when it is next to the site.
-const releaseCsv = new URL("../../data/reported-fee-collections.csv", import.meta.url);
+// The real release, when a checkout is present.
+const releaseRoot = path.resolve(process.env.MFA_DATA_ROOT || fileURLToPath(new URL("../../mfa-data", import.meta.url)));
+const releaseCsv = path.join(releaseRoot, "data/reported-fee-collections.csv");
 if (existsSync(releaseCsv)) {
   const fees = parseCsvObjects(readFileSync(releaseCsv, "utf8"));
-  const sources = parseCsvObjects(readFileSync(new URL("../../sources/index.csv", import.meta.url), "utf8"));
+  const sources = parseCsvObjects(readFileSync(path.join(releaseRoot, "sources/index.csv"), "utf8"));
   const m = buildModel(fees.rows, sources.rows);
   assert.deepEqual(m.problems, [], "every figure group has exactly one primary row");
   const groups = new Set(fees.rows.map((r) => r.figure_group_id));

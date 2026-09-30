@@ -1,4 +1,4 @@
-// node site/check-static.mjs
+// node check-static.mjs
 // Static contracts for the viewer, in the style of aimesy/tentatives'
 // site/check-static.mjs: pinned shared theme, strict page policy, no HTML
 // injection of release text, and the data rules the release depends on.

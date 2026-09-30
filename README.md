@@ -1,6 +1,12 @@
-# mfa-data viewer
+# MFA viewer
 
 A static site for looking at every figure in the `aimesy/mfa-data` release beside the page it was read from. It uses the shared `aimesy/themes` theme, pinned to one commit.
+
+This repository is the viewer; `aimesy/mfa-data` is the release it reads, as `aimesy/kcsc` is to `aimesy/kcsc-data`. Once Pages is enabled it is published at:
+
+```text
+https://aimesy.github.io/mfa/
+```
 
 ## What it is for
 
@@ -41,25 +47,27 @@ URL parameters:
 
 ## Run it locally
 
-From an `aimesy/mfa-data` checkout:
+Check out `aimesy/mfa-data` next to this repository (or point `MFA_DATA_ROOT` at a checkout), then:
 
 ```bash
-node site/tests/serve.mjs          # static server with byte-range support
-# open http://127.0.0.1:8765/site/?data=../
+node tests/serve.mjs          # this repo at /mfa/, the release at /mfa-data/, with byte-range support
+# open http://127.0.0.1:8765/mfa/?data=../mfa-data/
 ```
 
 ## Tests
 
 ```bash
-node site/check-static.mjs         # pinned theme, page policy, no HTML injection, data rules
-node site/tests/model.test.mjs     # CSV reader, figure model, outline geometry (plus the real release when present)
-node site/tests/smoke.mjs          # Chromium via Playwright against the local release
+node check-static.mjs         # pinned theme, page policy, no HTML injection, data rules
+node tests/model.test.mjs     # CSV reader, figure model, outline geometry (plus the real release when a checkout is present)
+node tests/smoke.mjs          # Chromium via Playwright against the local release
 ```
 
-`smoke.mjs` accepts `THEMES_DIR` (serve the pinned theme from a local `aimesy/themes` checkout), `BROWSER_PROXY` and `SCREENSHOT_DIR`.
+The tests find the release through `MFA_DATA_ROOT`, or `../mfa-data` beside this repository. `smoke.mjs` also accepts `THEMES_DIR` (serve the pinned theme from a local `aimesy/themes` checkout), `BROWSER_PROXY` and `SCREENSHOT_DIR`.
 
-## Where it lives
+## Deployment
 
-The code is staged under `site/` on a branch of `aimesy/mfa-data`. It should not be merged into the release: `validation/validate.py` rejects any file missing from `manifest.json`, and the release pipeline regenerates that manifest. The folder is self-contained so it can become the root of its own repository, as `aimesy/kcsc` is for `aimesy/kcsc-data`. `.github/workflows/pages.yml` deploys it to GitHub Pages from there.
+`.github/workflows/pages.yml` runs the static checks and model tests, then deploys the repository root to GitHub Pages on every push to `main`. Pages must be enabled once in Settings → Pages with "Source: GitHub Actions". Pages holds only the viewer; the release's data, evidence PDFs and reports are read from `raw.githubusercontent.com` at run time.
+
+The viewer was first staged under `site/` in `aimesy/mfa-data` (`8371df8`). It lives here so that the release pipeline stays the only writer to `aimesy/mfa-data`, which owns that repository's manifest and validation. Release 03 (`4d90bdd`) still carries a copy under `site/`; this repository is the one to change and deploy.
 
 Third-party code: pdf.js 4.10.38 (Apache-2.0) in `vendor/`, verified against the npm registry's integrity hash.

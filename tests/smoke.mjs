@@ -1,9 +1,9 @@
 // Browser smoke test against a local mfa-data checkout.
 //
-//   node site/tests/smoke.mjs
+//   node tests/smoke.mjs
 //
 // Environment:
-//   MFA_DATA_ROOT   release checkout to serve (default: the repo this file is in)
+//   MFA_DATA_ROOT   release checkout to serve (default: ../mfa-data beside this repo)
 //   THEMES_DIR      serve the pinned aimesy/themes assets from this checkout
 //                   instead of the CDN (for sandboxes that cannot reach it)
 //   BROWSER_PROXY   passed to Chromium as --proxy-server
@@ -14,12 +14,10 @@ import { execSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { serve } from "./serve.mjs";
+import { serve, VIEWER_ROOT, DATA_ROOT } from "./serve.mjs";
 import { parseCsvObjects } from "../lib/csv.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const root = process.env.MFA_DATA_ROOT || path.resolve(here, "../..");
+const root = DATA_ROOT;
 const shots = process.env.SCREENSHOT_DIR || "";
 if (shots) mkdirSync(shots, { recursive: true });
 
@@ -38,8 +36,8 @@ const sources = parseCsvObjects(readFileSync(path.join(root, "sources/index.csv"
 
 const { chromium } = await loadPlaywright();
 const port = 8790 + Math.floor(Math.random() * 100);
-const server = await serve(root, port);
-const base = `http://127.0.0.1:${port}/site/?data=../`;
+const server = await serve({ "/mfa/": VIEWER_ROOT, "/mfa-data/": root }, port);
+const base = `http://127.0.0.1:${port}/mfa/?data=../mfa-data/`;
 const browser = await chromium.launch({ args: process.env.BROWSER_PROXY ? [`--proxy-server=${process.env.BROWSER_PROXY}`] : [] });
 const problems = [];
 
