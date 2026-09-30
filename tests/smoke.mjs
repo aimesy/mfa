@@ -108,6 +108,13 @@ try {
   // A land-use tag lists every figure with that scope.
   const tag = page.locator(".figures-grid tbody tr .col-notes a.b-scope").first();
   const key = /scope-(\S+)/.exec(await tag.getAttribute("class"))[1];
+  const sizes = await page.$$eval(".figures-grid .col-notes .badge", (bs) => bs.map((b) => {
+    const r = b.getBoundingClientRect();
+    return { one: b.classList.contains("one"), w: Math.round(r.width * 100) / 100, h: Math.round(r.height * 100) / 100 };
+  }));
+  const ones = sizes.filter((x) => x.one);
+  assert.ok(ones.length > 0 && ones.every((x) => x.w === ones[0].w && x.h === ones[0].h && x.w === x.h), `one-character tags are one square size: ${JSON.stringify([...new Set(ones.map((x) => `${x.w}x${x.h}`))])}`);
+  assert.ok(sizes.every((x) => x.h === ones[0].h), "every tag has the same height");
   assert.ok(await page.evaluate(() => document.fonts.ready.then(() => [...document.fonts].some((f) => f.family.includes("Land use symbols") && f.status === "loaded"))), "land-use symbols use the black-and-white font");
   await tag.click();
   await page.waitForFunction((k) => document.querySelector("#scope")?.value === k, key);
