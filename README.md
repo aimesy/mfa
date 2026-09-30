@@ -2,11 +2,22 @@
 
 A static site for looking at every figure in the `aimesy/mfa-data` release beside the page it was read from. It uses the shared `aimesy/themes` theme, pinned to one commit.
 
-This repository is the viewer; `aimesy/mfa-data` is the release it reads, as `aimesy/kcsc` is to `aimesy/kcsc-data`. Once Pages is enabled it is published at:
+This repository is the viewer; `aimesy/mfa-data` is the release it reads, as `aimesy/kcsc` is to `aimesy/kcsc-data`.
+
+Published site:
+
+```text
+https://mfa.amyc.us/
+```
+
+Fallback GitHub Pages URL:
 
 ```text
 https://aimesy.github.io/mfa/
 ```
+
+Cloudflare DNS must keep a DNS-only `CNAME` from `mfa` to `aimesy.github.io`
+so GitHub Pages can issue and renew the custom-domain certificate.
 
 ## What it is for
 
@@ -66,7 +77,7 @@ The tests find the release through `MFA_DATA_ROOT`, or `../mfa-data` beside this
 
 ## Deployment
 
-`.github/workflows/pages.yml` runs the static checks and model tests, then deploys the repository root to GitHub Pages on every push to `main`. Pages must be enabled once in Settings → Pages with "Source: GitHub Actions". Pages holds only the viewer; the release's data, evidence PDFs and reports are read from `raw.githubusercontent.com` at run time.
+`.github/workflows/pages.yml` runs the static checks and model tests, then deploys the repository root to GitHub Pages on every push to `main`. Pages must be enabled once in Settings → Pages with "Source: GitHub Actions" and the custom domain `mfa.amyc.us`. With an Actions deployment GitHub takes the domain from that setting; `CNAME` records it in the repository, as in `aimesy/kcsc`. Pages holds only the viewer; the release's data, evidence PDFs and reports are read from `raw.githubusercontent.com` at run time.
 
 The viewer was first staged under `site/` in `aimesy/mfa-data` (`8371df8`). It lives here so that the release pipeline stays the only writer to `aimesy/mfa-data`, which owns that repository's manifest and validation. Release 03 (`4d90bdd`) still carries a copy under `site/`; this repository is the one to change and deploy.
 

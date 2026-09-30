@@ -1,4 +1,5 @@
-# Enable Pages once in Settings -> Pages with "Source: GitHub Actions".
+# Enable Pages once in Settings -> Pages with "Source: GitHub Actions" and
+# the custom domain mfa.amyc.us (see CNAME and README).
 
 name: Deploy Pages
 
