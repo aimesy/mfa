@@ -623,17 +623,22 @@ function scrollContentTop() {
   $("content").scrollTo(0, 0);
 }
 
-function badge(text, title, cls = "") {
+function badge(text, tip, cls = "") {
   const one = [...text].length === 1 ? " one" : "";
-  return el("span", { class: `badge ${cls}${one}`, title }, el("span", { class: "t", text }));
+  return el("span", { class: `badge ${cls}${one}`, role: "img", tabindex: "0", "aria-label": tip, "data-tip": tip },
+    el("span", { class: "t", "aria-hidden": "true", text }));
 }
 
 // A badge that lists every figure sharing it.
-function tagLink(filters, title, cls, ...body) {
+function tagLink(filters, tip, cls, ...body) {
   return el("a", {
-    class: `badge tag ${cls}`, href: hrefWith(filters), title, "aria-label": title,
+    class: `badge tag ${cls}`, href: hrefWith(filters), "data-tip": tip, "aria-label": `${tip}: show all`,
     onclick: (ev) => { ev.preventDefault(); ev.stopPropagation(); showFiltered(filters); },
   }, body);
+}
+
+function symbol(ch) {
+  return el("span", { class: "sym", "aria-hidden": "true", text: ch });
 }
 
 function showFiltered(filters) {
@@ -653,14 +658,16 @@ function scopeTag(code, named = false) {
   const sym = scopeSymbol(code);
   if (!sym) return null;
   const name = scopeLabel(code);
-  return tagLink({ scope: key }, `${name}: show all`, `b-scope scope-${key}${named ? "" : " one"}`,
-    el("span", { class: "sym", "aria-hidden": "true", text: sym }), named ? el("span", { class: "t", text: name }) : null);
+  return tagLink({ scope: key }, `Land use: ${name}`, `b-scope scope-${key}${named ? "" : " one"}`,
+    symbol(sym), named ? el("span", { class: "t", text: name }) : null);
 }
 
 function figureBadges(fig) {
   const p = fig.primary;
   const out = [scopeTag(p.land_use_scope)];
-  if (fig.restatements.length) out.push(badge(`×${fig.rows.length}`, `${fig.rows.length} rows, summed once`, "b-restated"));
+  // Nearly every figure has an arithmetic check, so only its absence is tagged.
+  if (!fig.arith) out.push(tagLink({ arith: "no" }, "No arithmetic check", "b-noarith one", symbol("\u{1F4F7}\uFE0E")));
+  if (fig.restatements.length) out.push(badge(`×${fig.rows.length}`, `${fig.rows.length} rows, counted once`, "b-restated"));
   if (fig.thousands) out.push(badge("000s", "Printed in thousands", "b-thousands"));
   if (fig.zero) out.push(badge("0", "Printed zero", "b-zero"));
   return out;
@@ -1111,8 +1118,41 @@ function niceStep(x) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
 }
 
+// Short tips for tags and inferred labels (data-tip), shown at once on hover
+// or focus. A title attribute waits a second and cannot be styled.
+function initTips() {
+  const tip = $("tooltip");
+  let current = null;
+  const show = (t) => {
+    current = t;
+    tip.className = "tooltip tip-short";
+    tip.textContent = t.dataset.tip;
+    tip.hidden = false;
+    const r = t.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    tip.style.left = `${Math.min(window.innerWidth - w - 8, Math.max(8, r.left + r.width / 2 - w / 2))}px`;
+    const above = r.top - tip.offsetHeight - 6;
+    tip.style.top = `${above >= 8 ? above : r.bottom + 6}px`;
+  };
+  const hide = () => {
+    if (!current) return;
+    current = null;
+    tip.hidden = true;
+  };
+  document.addEventListener("pointerover", (e) => {
+    const t = e.target.closest?.("[data-tip]");
+    if (t && t !== current) show(t);
+    else if (!t) hide();
+  });
+  document.addEventListener("focusin", (e) => { const t = e.target.closest?.("[data-tip]"); if (t) show(t); });
+  document.addEventListener("focusout", hide);
+  document.addEventListener("click", hide);
+  document.addEventListener("scroll", hide, true);
+}
+
 function showTooltip(ev, children) {
   const tip = $("tooltip");
+  tip.className = "tooltip";
   tip.replaceChildren(...children);
   tip.hidden = false;
   const r = ev.target.getBoundingClientRect();
@@ -1339,17 +1379,45 @@ function para(text, empty = "") {
   return text && text.trim() ? el("p", { text }) : el("p", { class: "muted", text: empty });
 }
 
+// What lib/arith.js may use to name the numbers in a bare equation: the
+// figure as printed, the lines the reading quotes, and the agency's other figures.
+function arithmeticContext(fig) {
+  const p = fig.primary;
+  const printed = String(p.source_value_text || "").replace(/[\s$]/g, "");
+  const n = Number(printed.replace(/[(),]/g, ""));
+  const siblings = new Map();
+  for (const f of model.figures) {
+    // Small amounts could match by chance.
+    if (f.entity !== fig.entity || f.id === fig.id || !Number.isFinite(f.value) || Math.abs(f.value) < 100) continue;
+    siblings.set(f.value, siblings.has(f.value) && siblings.get(f.value) !== f.program ? null : f.program);
+  }
+  for (const [v, name] of siblings) if (!name) siblings.delete(v);
+  return {
+    value: printed && Number.isFinite(n) ? (/^\(.*\)$/.test(printed) ? -n : n) : null,
+    label: fig.label,
+    program: fig.program,
+    hints: [...String(p.measure_read_from_source || "").matchAll(/['‘"“]([^'’"”]{2,60})['’"”]/g)].map((m) => m[1]),
+    siblings,
+  };
+}
+
 // The release's arithmetic_check, as tables where lib/arith.js can read it.
-function arithmeticView(text) {
+function arithmeticView(fig) {
+  const text = fig.primary.arithmetic_check;
   if (!text || !text.trim()) return para("", "None recorded.");
-  const { groups, notes } = readArithmetic(text);
+  const { groups, notes } = readArithmetic(text, arithmeticContext(fig));
   if (!groups.length) return para(text);
-  const row = (op, label, amount, cls = "") => el("tr", { class: cls },
-    el("td", { class: "op", text: op }), el("th", { scope: "row", text: label }), el("td", { class: "num", text: amount }));
+  const row = (op, t, cls = "") => el("tr", { class: cls },
+    el("td", { class: "op", text: op }),
+    el("th", { scope: "row", class: t.inferred ? "inferred" : "", "data-tip": t.inferred ? "Label inferred" : null, text: t.label }),
+    el("td", { class: "num", text: t.amount }));
   return [
-    el("table", { class: "grid arith" }, groups.map((g) => el("tbody", {},
-      g.terms.map((t) => row(t.op, t.label, t.amount)),
-      g.total ? row("=", g.total.label, g.total.amount, "total") : null))),
+    el("table", { class: "grid arith" },
+      el("thead", {}, el("tr", {}, el("th", { class: "op", scope: "col" }), el("th", { scope: "col", text: "Line" }), el("th", { class: "num", scope: "col", text: "Amount" }))),
+      groups.map((g) => el("tbody", {},
+        g.caption ? el("tr", { class: "cap" }, el("th", { colspan: 3, scope: "rowgroup", text: g.caption })) : null,
+        g.terms.map((t) => row(t.op, t)),
+        g.total ? row("=", g.total, "total") : null))),
     notes.length ? el("ul", { class: "arith-notes" }, notes.map((n) => el("li", { text: n }))) : null,
   ];
 }
@@ -1367,7 +1435,7 @@ function figureDetails(fig) {
       ["Fiscal year", el("span", { title: humanize(p.fiscal_year_basis), text: `${fmtFy(fig.fy)} · ${p.fiscal_year_start} to ${p.fiscal_year_end}` })],
       ["Category", humanize(fig.category)],
     ])),
-    section("Arithmetic", arithmeticView(p.arithmetic_check)),
+    section("Arithmetic", arithmeticView(fig)),
     section("Notes", dl([
       ["Location", p.measure_read_from_source],
       ["Land use", p.land_use_basis],
@@ -1498,6 +1566,7 @@ function wire() {
     readState();
     renderAll();
   });
+  initTips();
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || !(state.figure || state.doc)) return;
     const t = e.target;

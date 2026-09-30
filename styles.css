@@ -2,15 +2,6 @@
    theme.css (loaded after this file) sets per theme. The :root block below is
    only a fallback so the page stays legible if the theme CDN is unreachable. */
 
-/* Noto Emoji, the black-and-white face, cut down to the four land-use
-   symbols. SIL Open Font License: vendor/noto-emoji/OFL.txt. */
-@font-face {
-  font-family: "Land use symbols";
-  src: url("vendor/noto-emoji/noto-emoji-land-use.woff2") format("woff2");
-  unicode-range: U+2754, U+1F3D9, U+1F3E0, U+1F3E2;
-  font-display: block;
-}
-
 :root {
   color-scheme: light;
   --paper: #fbfaf6;
@@ -382,7 +373,7 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 /* One-character tags are all the same square. Longer ones share the height. */
 .badge.one { width: 1.25rem; padding: 0; }
 .badge.one .t { font-size: 0.72rem; }
-.badge .sym { display: block; font-family: "Land use symbols"; font-variant-emoji: text; font-size: 0.75rem; line-height: 1; transform: translateY(-0.03em); }
+.badge .sym { display: block; font-family: "Noto Emoji"; font-variant-emoji: text; font-size: 0.75rem; line-height: 1; transform: translateY(-0.03em); }
 .badge.b-restated, .badge.b-thousands { color: var(--warn-ink); border-color: var(--warn-border); background: var(--warn-bg); }
 
 .ev-links { display: inline-flex; gap: 0.2rem; align-items: center; flex-wrap: nowrap; }
@@ -537,6 +528,7 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
   pointer-events: none;
 }
 .tooltip strong { display: block; font-size: 0.86rem; }
+.tooltip.tip-short { min-width: 0; padding: 0.15rem 0.4rem; font-family: var(--font-mono); font-size: 0.66rem; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14); }
 
 /* ------------------------------------------------------------ evidence panel */
 
@@ -692,6 +684,9 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .grid.rows code { font-size: 0.66rem; overflow-wrap: anywhere; }
 .grid.rows thead th { position: static; }
 .grid.arith { width: 100%; margin-top: 0.2rem; }
+.grid.arith thead th { position: static; }
+.grid.arith tr.cap th { font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; color: var(--ink-3); background: var(--paper-2); }
+.grid.arith th.inferred { color: var(--ink-3); font-style: italic; cursor: help; }
 .grid.arith th { font-weight: 400; overflow-wrap: anywhere; }
 .grid.arith td.op { width: 1.3rem; text-align: center; font-family: var(--font-mono); color: var(--ink-3); }
 .grid.arith tbody tr:nth-child(even), .grid.arith tbody tr:hover { background: var(--paper); }

@@ -119,6 +119,23 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
   ]);
   assert.deepEqual(c.notes, []);
 
+  // Bare numbers take the figure's own label, the lines the reading quotes,
+  // then a marked inferred role.
+  const e = readArithmetic("The table reconciles exactly: 10,760,449.18 + 3,171,016.75 + 665,354.12 - 1,432,160.06 = 13,164,659.99, the printed ending balance.",
+    { value: 3171016.75, label: "Amount of Reportable Fees Collected", hints: ["Amount of Reportable Fees Collected", "Interest Earned", "Expenditures"] });
+  assert.deepEqual(e.groups[0].terms.map((t) => [t.op, t.label, t.amount, Boolean(t.inferred)]), [
+    ["", "Beginning balance", "10,760,449.18", true], ["+", "Amount of Reportable Fees Collected", "3,171,016.75", false],
+    ["+", "Interest Earned", "665,354.12", true], ["−", "Expenditures", "1,432,160.06", true],
+  ]);
+  assert.equal(e.groups[0].total.label, "Ending balance");
+  assert.deepEqual(e.notes, []);
+
+  // Lines the note names once, then gives per fund in numbers; captions name the fund.
+  const f = readArithmetic("Every column reconciles: Fees + Interest equals the printed Total Revenues for each fund (for example ADMIN 19,356 + 4,546 = 23,902; SEWER 329,478 + 126,850 = 456,328).");
+  assert.deepEqual(f.groups.map((g) => [g.caption, g.terms.map((t) => t.label), g.total.label, g.total.amount]), [
+    ["ADMIN", ["Fees", "Interest"], "Total Revenues", "23,902"], ["SEWER", ["Fees", "Interest"], "Total Revenues", "456,328"],
+  ]);
+
   // An equation that does not close is left in the release's words.
   const d = readArithmetic("Beginning balance 100 + Fees 50 = the printed Ending balance 175.");
   assert.equal(d.groups.length, 0);

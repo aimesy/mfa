@@ -115,12 +115,18 @@ try {
   const ones = sizes.filter((x) => x.one);
   assert.ok(ones.length > 0 && ones.every((x) => x.w === ones[0].w && x.h === ones[0].h && x.w === x.h), `one-character tags are one square size: ${JSON.stringify([...new Set(ones.map((x) => `${x.w}x${x.h}`))])}`);
   assert.ok(sizes.every((x) => x.h === ones[0].h), "every tag has the same height");
-  assert.ok(await page.evaluate(() => document.fonts.ready.then(() => [...document.fonts].some((f) => f.family.includes("Land use symbols") && f.status === "loaded"))), "land-use symbols use the black-and-white font");
+  assert.ok(await page.evaluate(() => document.fonts.ready.then(() => [...document.fonts].some((f) => f.family.includes("Noto Emoji") && f.status === "loaded"))), "land-use symbols use the black-and-white font");
   await tag.click();
   await page.waitForFunction((k) => document.querySelector("#scope")?.value === k, key);
   const inScope = new Set(primary.filter((r) => scopeKey(r.land_use_scope) === key).map((r) => r.figure_group_id)).size;
   await page.waitForFunction((n) => document.querySelector(".result-bar .count strong")?.innerText.replace(/,/g, "") === String(n), inScope);
   await page.click(".result-bar .filter-tag button");
+
+  // Tags answer on hover at once, in a few words.
+  await page.locator(".figures-grid tbody tr .col-notes a.b-scope").first().hover();
+  await page.waitForSelector("#tooltip.tip-short:not([hidden])", { timeout: 2000 });
+  assert.match(await page.locator("#tooltip").innerText(), /^Land use: \S+( \S+)?$/);
+  await page.mouse.move(0, 0);
 
   // Evidence panel: outlined page, hash check, box on the drawn outline
   await page.locator(".figures-grid tbody tr").first().click();
