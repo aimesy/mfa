@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { serve, VIEWER_ROOT, DATA_ROOT } from "./serve.mjs";
 import { parseCsvObjects } from "../lib/csv.js";
+import { scopeKey } from "../lib/model.js";
 
 const root = DATA_ROOT;
 const shots = process.env.SCREENSHOT_DIR || "";
@@ -102,6 +103,15 @@ try {
   await page.fill("#q", "Quimby");
   await page.waitForFunction(() => /“Quimby”/.test(document.querySelector(".result-bar")?.innerText || ""));
   assert.ok(await page.locator(".figures-grid tbody tr:not(.empty-row)").count() > 0, "search reaches limitations text");
+  await page.click(".result-bar .filter-tag button");
+
+  // A land-use tag lists every figure with that scope.
+  const tag = page.locator(".figures-grid tbody tr .col-notes a.b-scope").first();
+  const key = /scope-(\S+)/.exec(await tag.getAttribute("class"))[1];
+  await tag.click();
+  await page.waitForFunction((k) => document.querySelector("#scope")?.value === k, key);
+  const inScope = new Set(primary.filter((r) => scopeKey(r.land_use_scope) === key).map((r) => r.figure_group_id)).size;
+  await page.waitForFunction((n) => document.querySelector(".result-bar .count strong")?.innerText.replace(/,/g, "") === String(n), inScope);
   await page.click(".result-bar .filter-tag button");
 
   // Evidence panel: outlined page, hash check, box on the drawn outline

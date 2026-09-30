@@ -12,7 +12,7 @@
 import { parseCsvObjects, toCsv } from "./lib/csv.js";
 import {
   buildModel, filterFigures, sortFigures, summarize, entityMatrix, coverageByYear,
-  fmtUsd, fmtSum, fmtInt, fmtBytes, fmtFy, fyRanges, humanize, scopeLabel, scopeKey, entityTypeLabel,
+  fmtUsd, fmtSum, fmtInt, fmtBytes, fmtFy, fyRanges, humanize, scopeLabel, scopeKey, scopeSymbol, entityTypeLabel,
   basisLabel, grossNetLabel, roleLabel, statusLabel, publicationTypeLabel,
   splitLimitations, EMPTY_FILTERS, NONE, matchesChoice, SORT_COLUMNS,
 } from "./lib/model.js";
@@ -436,7 +436,7 @@ function renderToolbar() {
       chip("Type", select("type", choices(model.types, entityTypeLabel), f.type, setF("type"))),
       chip("County", select("county", choices(model.counties, (c) => c), f.county, setF("county"))),
       chip("Category", select("cat", choices(model.categories, humanize), f.cat, setF("cat"))),
-      chip("Land use", select("scope", choices(model.scopes, scopeLabel), f.scope, setF("scope"))),
+      chip("Land use", select("scope", choices(model.scopes, (k) => `${scopeSymbol(k)} ${scopeLabel(k)}`.trim()), f.scope, setF("scope"))),
       chip("FY from", select("from", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyFrom, setF("fyFrom"))),
       chip("to", select("to", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyTo, setF("fyTo"))),
       chip("Arithmetic", select("arith", [["", "Any"], ["yes", "Yes"], ["no", "No"]], f.arith, setF("arith"))),
@@ -541,7 +541,7 @@ function activeFilterTags() {
   if (f.type) tags.push(filterTag(`Type: ${choiceLabel(f.type, entityTypeLabel)}`, drop("type")));
   if (f.county) tags.push(filterTag(`County: ${choiceLabel(f.county, (c) => c)}`, drop("county")));
   if (f.cat) tags.push(filterTag(`Category: ${choiceLabel(f.cat, humanize)}`, drop("cat")));
-  if (f.scope) tags.push(filterTag(`Land use: ${choiceLabel(f.scope, scopeLabel)}`, drop("scope")));
+  if (f.scope) tags.push(filterTag(`Land use: ${choiceLabel(f.scope, (k) => `${scopeSymbol(k)} ${scopeLabel(k)}`.trim())}`, drop("scope")));
   if (f.fyFrom || f.fyTo) tags.push(filterTag(`FY ${fmtFy(f.fyFrom) || "…"} to ${fmtFy(f.fyTo) || "…"}`, () => { state.filters.fyFrom = ""; state.filters.fyTo = ""; update(); }));
   if (f.arith) tags.push(filterTag(`Arithmetic: ${f.arith === "yes" ? "yes" : "no"}`, drop("arith")));
   return tags;
@@ -627,15 +627,39 @@ function badge(text, title, cls = "") {
   return el("span", { class: `badge ${cls}`, title, text });
 }
 
-// "Not split" gets no badge: it is nearly every figure.
-const SCOPE_BADGES = { residential: "Res", nonresidential: "Non-res", mixed: "Mixed" };
+// A badge that lists every figure sharing it.
+function tagLink(filters, title, cls, ...body) {
+  return el("a", {
+    class: `badge tag ${cls}`, href: hrefWith(filters), title, "aria-label": title,
+    onclick: (ev) => { ev.preventDefault(); ev.stopPropagation(); showFiltered(filters); },
+  }, body);
+}
+
+function showFiltered(filters) {
+  state.view = "figures";
+  state.filters = { ...EMPTY_FILTERS, ...filters };
+  state.page = 1;
+  state.entity = "";
+  state.figure = "";
+  state.doc = "";
+  state.pg = null;
+  update({ push: true });
+  scrollContentTop();
+}
+
+function scopeTag(code, named = false) {
+  const key = scopeKey(code);
+  const sym = scopeSymbol(code);
+  if (!sym) return null;
+  const name = scopeLabel(code);
+  return tagLink({ scope: key }, `${name}: show all`, `b-scope scope-${key}`,
+    el("span", { class: "sym", "aria-hidden": "true", text: sym }), named ? ` ${name}` : null);
+}
 
 function figureBadges(fig) {
   const p = fig.primary;
-  const out = [];
-  if (fig.arith) out.push(badge("Σ", "Arithmetic check", "b-arith"));
-  const scopeBadge = SCOPE_BADGES[scopeKey(p.land_use_scope)];
-  if (scopeBadge) out.push(badge(scopeBadge, `Land use: ${scopeLabel(p.land_use_scope)}`, "b-scope"));
+  const out = [scopeTag(p.land_use_scope)];
+  if (fig.arith) out.push(tagLink({ arith: "yes" }, "Arithmetic check: show all", "b-arith", "Σ"));
   if (fig.restatements.length) out.push(badge(`×${fig.rows.length}`, `${fig.rows.length} rows, summed once`, "b-restated"));
   if (fig.thousands) out.push(badge("000s", "Printed in thousands", "b-thousands"));
   if (fig.zero) out.push(badge("0", "Printed zero", "b-zero"));
@@ -1337,7 +1361,7 @@ function figureDetails(fig) {
   const mono = (t) => el("code", { class: "wrap", text: t });
   return el("div", { class: "details" },
     el("section", { class: "detail" }, dl([
-      ["Land use", scopeLabel(p.land_use_scope)],
+      ["Land use", scopeTag(p.land_use_scope, true) || scopeLabel(p.land_use_scope)],
       ["Basis", basisLabel(p.accounting_basis_source_read)],
       ["Gross/net", grossNetLabel(p.gross_or_net_source_read)],
       ["Fiscal year", el("span", { title: humanize(p.fiscal_year_basis), text: `${fmtFy(fig.fy)} · ${p.fiscal_year_start} to ${p.fiscal_year_end}` })],

@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCsv, parseCsvObjects, toCsv } from "../lib/csv.js";
-import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms, scopeLabel, scopeKey, basisLabel, grossNetLabel } from "../lib/model.js";
+import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms, scopeLabel, scopeKey, scopeSymbol, basisLabel, grossNetLabel } from "../lib/model.js";
 import { readArithmetic } from "../lib/arith.js";
 import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.js";
 
@@ -84,6 +84,10 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
   assert.equal(scopeLabel("not_split_in_source"), "Not split");
   assert.equal(scopeLabel(""), "Not recorded");
   assert.equal(scopeKey(NONE), NONE);
+  assert.equal(scopeSymbol("residential_and_nonresidential_not_split"), "\u{1F3D9}\uFE0F");
+  assert.equal(scopeSymbol("residential_only_stated_in_source"), "\u{1F3E0}");
+  assert.equal(scopeSymbol("nonresidential_only_stated_in_source"), "\u{1F3E2}");
+  assert.equal(scopeSymbol(""), "");
   assert.equal(basisLabel("cash_basis_report_is_titled_cash_balances_and_activities"), "Cash");
   assert.equal(basisLabel("modified_accrual; Note1 physical27"), "Modified accrual");
   assert.equal(basisLabel("Governmental funds use modified accrual."), "Governmental funds use modified accrual.");
