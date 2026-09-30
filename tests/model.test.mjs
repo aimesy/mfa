@@ -110,7 +110,18 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
     ["−", "REFUNDS", "–"], ["+", "EXPENDITURES", "(1,000.00)"],
   ]);
   assert.equal(b.groups[0].total.label, "ENDING BALANCE 6/30/20");
-  assert.deepEqual(b.notes, ["The table is headed 2019/20."]);
+  assert.deepEqual(b.notes, []);
+  assert.deepEqual(b.facts, [{ label: "Table heading", value: "2019/20" }]);
+
+  // Balances that match another report, and stated context, become table rows.
+  const m = readArithmetic("Fees 1,000 + Interest 50 = the printed Total 1,050. The reading is corroborated across separately published reports: this fee's printed beginning balance (2,534,356.16) is the ending balance printed for it in the FY2017-18 report. Every figure stands in the column headed FY14/15, under the page heading For Fiscal Year 2014/15, and the balances are dated June 30, 2014 and June 30, 2015.");
+  assert.deepEqual(m.groups[1], { caption: "Across reports", terms: [{ op: "", label: "Beginning balance, this report", amount: "(2,534,356.16)", value: -2534356.16 }], total: { label: "Ending balance, FY2017-18 report", amount: "(2,534,356.16)", value: -2534356.16 } });
+  assert.deepEqual(m.facts, [{ label: "Column heading", value: "FY14/15" }, { label: "Page heading", value: "For Fiscal Year 2014/15" }, { label: "Balances dated", value: "June 30, 2014 and June 30, 2015" }]);
+  assert.deepEqual(m.notes, []);
+
+  // "plus that year's net": the line is left unstated, not filled from another total.
+  const n = readArithmetic("Fees 30,000 + Interest 35,879 = the printed Total Revenues 65,879; and the printed Fund Balance - Beginning of Year 1,000,000 plus that year's net is the printed Fund Balance - End of Year 1,040,000.");
+  assert.deepEqual(n.groups[1].terms.map((t) => [t.op, t.label, t.amount]), [["", "Fund Balance - Beginning of Year", "1,000,000"], ["+", "Net change", ""]]);
 
   // "that total" refers back; lines the note names without amounts stay blank.
   const c = readArithmetic("The column headed FY 2019/20 accounts for itself: its revenue lines give the printed revenue total of 1,184; opening balance 18,552 (Fund Balance, Beginning of Year) plus that total, less the expenditure total and plus the financing total, gives the printed Fund Balance, End of Year of 19,736.");
@@ -136,11 +147,14 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
     ["ADMIN", ["Fees", "Interest"], "Total Revenues", "23,902"], ["SEWER", ["Fees", "Interest"], "Total Revenues", "456,328"],
   ]);
 
-  // An equation that does not close is left in the release's words.
+  // An equation that does not close as written is shown as its printed lines,
+  // without operators; it is never shown as a sum.
   const d = readArithmetic("Beginning balance 100 + Fees 50 = the printed Ending balance 175.");
-  assert.equal(d.groups.length, 0);
-  assert.deepEqual(d.notes, ["Beginning balance 100 + Fees 50 = the printed Ending balance 175."]);
-  assert.deepEqual(readArithmetic(""), { groups: [], notes: [] });
+  assert.equal(d.groups.length, 1);
+  assert.equal(d.groups[0].printed, true);
+  assert.deepEqual(d.groups[0].terms.map((t) => [t.op, t.label, t.amount]), [["", "Beginning balance", "100"], ["", "Fees", "50"]]);
+  assert.deepEqual(d.notes, []);
+  assert.deepEqual(readArithmetic(""), { groups: [], facts: [], notes: [] });
 }
 
 // Geometry: MuPDF top-left coordinates relative to the CropBox -> PDF user space.

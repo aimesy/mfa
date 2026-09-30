@@ -1401,23 +1401,29 @@ function arithmeticContext(fig) {
   };
 }
 
-// The release's arithmetic_check, as tables where lib/arith.js can read it.
+// The release's arithmetic_check as tables: equations, then the context the
+// note states (headings, dates), then whatever lib/arith.js could not place.
 function arithmeticView(fig) {
   const text = fig.primary.arithmetic_check;
   if (!text || !text.trim()) return para("", "None recorded.");
-  const { groups, notes } = readArithmetic(text, arithmeticContext(fig));
-  if (!groups.length) return para(text);
+  const { groups, facts, notes } = readArithmetic(text, arithmeticContext(fig));
+  if (!groups.length && !facts.length) return para(text);
   const row = (op, t, cls = "") => el("tr", { class: cls },
     el("td", { class: "op", text: op }),
     el("th", { scope: "row", class: t.inferred ? "inferred" : "", "data-tip": t.inferred ? "Label inferred" : null, text: t.label }),
     el("td", { class: "num", text: t.amount }));
+  // A note whose own sum does not close is shown as its printed lines, with no
+  // operators, so the table never claims arithmetic the release does not show.
+  const caption = (g) => g.caption || (g.printed ? "Lines as printed" : "");
   return [
-    el("table", { class: "grid arith" },
+    groups.length ? el("table", { class: "grid arith" },
       el("thead", {}, el("tr", {}, el("th", { class: "op", scope: "col" }), el("th", { scope: "col", text: "Line" }), el("th", { class: "num", scope: "col", text: "Amount" }))),
-      groups.map((g) => el("tbody", {},
-        g.caption ? el("tr", { class: "cap" }, el("th", { colspan: 3, scope: "rowgroup", text: g.caption })) : null,
+      groups.map((g) => el("tbody", { class: g.printed ? "printed" : "" },
+        caption(g) ? el("tr", { class: "cap" }, el("th", { colspan: 3, scope: "rowgroup", text: caption(g) })) : null,
         g.terms.map((t) => row(t.op, t)),
-        g.total ? row("=", g.total, "total") : null))),
+        g.total ? row(g.printed ? "" : "=", g.total, "total") : null))) : null,
+    facts.length ? el("table", { class: "grid facts" }, el("tbody", {},
+      facts.map((f) => el("tr", {}, el("th", { scope: "row", text: f.label }), el("td", { text: f.value }))))) : null,
     notes.length ? el("ul", { class: "arith-notes" }, notes.map((n) => el("li", { text: n }))) : null,
   ];
 }

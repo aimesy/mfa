@@ -687,6 +687,10 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .grid.arith thead th { position: static; }
 .grid.arith tr.cap th { font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; color: var(--ink-3); background: var(--paper-2); }
 .grid.arith th.inferred { color: var(--ink-3); font-style: italic; cursor: help; }
+.grid.arith tbody.printed tr.total > * { font-weight: 400; }
+.grid.facts { width: 100%; margin-top: 0.5rem; }
+.grid.facts th { width: 38%; font-weight: 400; color: var(--ink-3); position: static; }
+.grid.facts tbody tr:nth-child(even), .grid.facts tbody tr:hover { background: var(--paper); }
 .grid.arith th { font-weight: 400; overflow-wrap: anywhere; }
 .grid.arith td.op { width: 1.3rem; text-align: center; font-family: var(--font-mono); color: var(--ink-3); }
 .grid.arith tbody tr:nth-child(even), .grid.arith tbody tr:hover { background: var(--paper); }
