@@ -81,4 +81,4 @@ The tests find the release through `MFA_DATA_ROOT`, or `../mfa-data` beside this
 
 The viewer was first staged under `site/` in `aimesy/mfa-data` (`8371df8`). It lives here so that the release pipeline stays the only writer to `aimesy/mfa-data`, which owns that repository's manifest and validation. Release 03 (`4d90bdd`) still carries a copy under `site/`; this repository is the one to change and deploy.
 
-Third-party code: pdf.js 4.10.38 (Apache-2.0) in `vendor/`, verified against the npm registry's integrity hash.
+Third-party code: pdf.js 4.10.38 (Apache-2.0) in `vendor/`, verified against the npm registry's integrity hash. Noto Emoji (SIL OFL 1.1), subset to the four land-use symbols, in `vendor/noto-emoji/`.

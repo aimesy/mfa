@@ -2,6 +2,15 @@
    theme.css (loaded after this file) sets per theme. The :root block below is
    only a fallback so the page stays legible if the theme CDN is unreachable. */
 
+/* Noto Emoji, the black-and-white face, cut down to the four land-use
+   symbols. SIL Open Font License: vendor/noto-emoji/OFL.txt. */
+@font-face {
+  font-family: "Land use symbols";
+  src: url("vendor/noto-emoji/noto-emoji-land-use.woff2") format("woff2");
+  unicode-range: U+2754, U+1F3D9, U+1F3E0, U+1F3E2;
+  font-display: block;
+}
+
 :root {
   color-scheme: light;
   --paper: #fbfaf6;
@@ -361,7 +370,8 @@ th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
 .badge.b-scope { color: var(--ink); }
 a.badge.tag { cursor: pointer; text-decoration: none; }
 a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text-decoration: none; }
-.badge .sym { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-size: 0.8rem; line-height: 1; vertical-align: -0.05em; }
+.badge.b-scope { padding: 0.12rem 0.28rem 0.06rem; line-height: 1; }
+.badge .sym { display: inline-block; font-family: "Land use symbols"; font-variant-emoji: text; font-size: 0.72rem; line-height: 1; vertical-align: -0.1em; }
 .badge.b-restated, .badge.b-thousands { color: var(--warn-ink); border-color: var(--warn-border); background: var(--warn-bg); }
 
 .ev-links { display: inline-flex; gap: 0.2rem; align-items: center; flex-wrap: nowrap; }

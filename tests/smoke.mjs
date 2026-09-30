@@ -108,6 +108,7 @@ try {
   // A land-use tag lists every figure with that scope.
   const tag = page.locator(".figures-grid tbody tr .col-notes a.b-scope").first();
   const key = /scope-(\S+)/.exec(await tag.getAttribute("class"))[1];
+  assert.ok(await page.evaluate(() => document.fonts.ready.then(() => [...document.fonts].some((f) => f.family.includes("Land use symbols") && f.status === "loaded"))), "land-use symbols use the black-and-white font");
   await tag.click();
   await page.waitForFunction((k) => document.querySelector("#scope")?.value === k, key);
   const inScope = new Set(primary.filter((r) => scopeKey(r.land_use_scope) === key).map((r) => r.figure_group_id)).size;

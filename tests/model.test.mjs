@@ -84,9 +84,9 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
   assert.equal(scopeLabel("not_split_in_source"), "Not split");
   assert.equal(scopeLabel(""), "Not recorded");
   assert.equal(scopeKey(NONE), NONE);
-  assert.equal(scopeSymbol("residential_and_nonresidential_not_split"), "\u{1F3D9}\uFE0F");
-  assert.equal(scopeSymbol("residential_only_stated_in_source"), "\u{1F3E0}");
-  assert.equal(scopeSymbol("nonresidential_only_stated_in_source"), "\u{1F3E2}");
+  assert.equal(scopeSymbol("residential_and_nonresidential_not_split"), "\u{1F3D9}\uFE0E");
+  assert.equal(scopeSymbol("residential_only_stated_in_source"), "\u{1F3E0}\uFE0E");
+  assert.equal(scopeSymbol("nonresidential_only_stated_in_source"), "\u{1F3E2}\uFE0E");
   assert.equal(scopeSymbol(""), "");
   assert.equal(basisLabel("cash_basis_report_is_titled_cash_balances_and_activities"), "Cash");
   assert.equal(basisLabel("modified_accrual; Note1 physical27"), "Modified accrual");
