@@ -624,7 +624,7 @@ function scrollContentTop() {
 }
 
 function badge(text, title, cls = "") {
-  return el("span", { class: `badge ${cls}`, title, text });
+  return el("span", { class: `badge ${cls}`, title }, el("span", { class: "t", text }));
 }
 
 // A badge that lists every figure sharing it.
@@ -653,13 +653,13 @@ function scopeTag(code, named = false) {
   if (!sym) return null;
   const name = scopeLabel(code);
   return tagLink({ scope: key }, `${name}: show all`, `b-scope scope-${key}`,
-    el("span", { class: "sym", "aria-hidden": "true", text: sym }), named ? ` ${name}` : null);
+    el("span", { class: "sym", "aria-hidden": "true", text: sym }), named ? el("span", { class: "t", text: name }) : null);
 }
 
 function figureBadges(fig) {
   const p = fig.primary;
   const out = [scopeTag(p.land_use_scope)];
-  if (fig.arith) out.push(tagLink({ arith: "yes" }, "Arithmetic check: show all", "b-arith", "Σ"));
+  if (fig.arith) out.push(tagLink({ arith: "yes" }, "Arithmetic check: show all", "b-arith", el("span", { class: "t", text: "Σ" })));
   if (fig.restatements.length) out.push(badge(`×${fig.rows.length}`, `${fig.rows.length} rows, summed once`, "b-restated"));
   if (fig.thousands) out.push(badge("000s", "Printed in thousands", "b-thousands"));
   if (fig.zero) out.push(badge("0", "Printed zero", "b-zero"));

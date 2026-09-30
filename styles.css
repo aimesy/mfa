@@ -354,7 +354,13 @@ th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
 .sources-grid.compact { min-width: 720px; }
 
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3em;
+  box-sizing: border-box;
+  height: 1.15rem;
+  min-width: 1.15rem;
   margin: 0 0.2rem 0.15rem 0;
   padding: 0 0.28rem;
   border: 1px solid var(--rule);
@@ -363,15 +369,18 @@ th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
   color: var(--ink-2);
   font-family: var(--font-mono);
   font-size: 0.6rem;
-  line-height: 1.5;
+  line-height: 1;
+  vertical-align: middle;
   cursor: help;
 }
 .badge.b-arith { color: var(--ok); border-color: var(--good-border); background: var(--good-bg); }
 .badge.b-scope { color: var(--ink); }
 a.badge.tag { cursor: pointer; text-decoration: none; }
 a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text-decoration: none; }
-.badge.b-scope { padding: 0.12rem 0.28rem 0.06rem; line-height: 1; }
-.badge .sym { display: inline-block; font-family: "Land use symbols"; font-variant-emoji: text; font-size: 0.72rem; line-height: 1; vertical-align: -0.1em; }
+/* Centre on the ink: badge text trims its line box to the cap height, and
+   the symbols sit a little low in their em box, so they are nudged up. */
+.badge .t { display: block; text-box: trim-both cap alphabetic; }
+.badge .sym { display: block; font-family: "Land use symbols"; font-variant-emoji: text; font-size: 0.75rem; line-height: 1; transform: translateY(-0.03em); }
 .badge.b-restated, .badge.b-thousands { color: var(--warn-ink); border-color: var(--warn-border); background: var(--warn-bg); }
 
 .ev-links { display: inline-flex; gap: 0.2rem; align-items: center; flex-wrap: nowrap; }
