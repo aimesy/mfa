@@ -660,7 +660,6 @@ function scopeTag(code, named = false) {
 function figureBadges(fig) {
   const p = fig.primary;
   const out = [scopeTag(p.land_use_scope)];
-  if (fig.arith) out.push(tagLink({ arith: "yes" }, "Arithmetic check: show all", "b-arith one", el("span", { class: "t", text: "Σ" })));
   if (fig.restatements.length) out.push(badge(`×${fig.rows.length}`, `${fig.rows.length} rows, summed once`, "b-restated"));
   if (fig.thousands) out.push(badge("000s", "Printed in thousands", "b-thousands"));
   if (fig.zero) out.push(badge("0", "Printed zero", "b-zero"));
