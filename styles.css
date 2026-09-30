@@ -667,6 +667,13 @@ th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
 .grid.rows { width: 100%; margin-top: 0.4rem; }
 .grid.rows code { font-size: 0.66rem; overflow-wrap: anywhere; }
 .grid.rows thead th { position: static; }
+.grid.arith { width: 100%; margin-top: 0.2rem; }
+.grid.arith th { font-weight: 400; overflow-wrap: anywhere; }
+.grid.arith td.op { width: 1.3rem; text-align: center; font-family: var(--font-mono); color: var(--ink-3); }
+.grid.arith tbody tr:nth-child(even), .grid.arith tbody tr:hover { background: var(--paper); }
+.grid.arith tr.total > * { font-weight: 700; border-top: 1px solid var(--ink-3); }
+.grid.arith tbody + tbody tr:first-child > * { border-top: 0.6rem solid var(--paper-2); }
+.detail ul.arith-notes { margin-top: 0.45rem; color: var(--ink-3); font-size: 0.74rem; }
 
 /* ------------------------------------------------------------ narrow screens */
 

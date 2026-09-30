@@ -8,7 +8,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCsv, parseCsvObjects, toCsv } from "../lib/csv.js";
-import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms } from "../lib/model.js";
+import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms, scopeLabel, scopeKey, basisLabel, grossNetLabel } from "../lib/model.js";
+import { readArithmetic } from "../lib/arith.js";
 import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.js";
 
 // CSV: quoted commas, doubled quotes, embedded CRLF, BOM
@@ -72,6 +73,53 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
   assert.equal(fmtSum(1234.5), "$1,235");
   assert.equal(fyRanges(["2014-15", "2015-16", "2016-17", "2019-20"]), "2014–15 to 2016–17, 2019–20");
   assert.equal(fyRanges(["2002-03"]), "2002–03");
+}
+
+// Short labels: several release codes share one name, and prose stays as written.
+{
+  assert.equal(scopeLabel("residential_and_nonresidential_not_split"), "Mixed");
+  assert.equal(scopeLabel("mixed_residential_and_nonresidential_stated_in_source"), "Mixed");
+  assert.equal(scopeLabel("residential_only_printed_subtotal"), "Residential");
+  assert.equal(scopeLabel("nonresidential_only_stated_in_source"), "Non-residential");
+  assert.equal(scopeLabel("not_split_in_source"), "Not split");
+  assert.equal(scopeLabel(""), "Not recorded");
+  assert.equal(scopeKey(NONE), NONE);
+  assert.equal(basisLabel("cash_basis_report_is_titled_cash_balances_and_activities"), "Cash");
+  assert.equal(basisLabel("modified_accrual; Note1 physical27"), "Modified accrual");
+  assert.equal(basisLabel("Governmental funds use modified accrual."), "Governmental funds use modified accrual.");
+  assert.equal(grossNetLabel("gross_refunds_reported_separately_in_source"), "Gross");
+}
+
+// Arithmetic: a note becomes tables only where its printed amounts close.
+{
+  const a = readArithmetic("The row's printed roll-forward closes: beginning fund balance 72,547 + Revenue 186,348 + Expenditure (219,686), which the report prints as a negative, + Interest Income 1,333 = the printed ending fund balance 40,542.");
+  assert.deepEqual(a.groups.map((g) => [g.terms.map((t) => [t.op, t.label, t.amount]), g.total.label, g.total.amount]), [[
+    [["", "Beginning fund balance", "72,547"], ["+", "Revenue", "186,348"], ["+", "Expenditure", "(219,686)"], ["+", "Interest Income", "1,333"]],
+    "Ending fund balance", "40,542",
+  ]]);
+  assert.deepEqual(a.notes, []);
+
+  // A printed dash stays a dash and is not added in; "less (x)" is the bracketed cell added.
+  const b = readArithmetic("The ledger's own printed lines account for each other: BEGINNING BALANCE 07/01/19 5,057.32 plus FEES COLLECTED 11,841.83 and INTEREST EARNED 471.42, less REFUNDS - and EXPENDITURES (1,000.00), gives the printed ENDING BALANCE 6/30/20 of 16,370.57. The table is headed 2019/20.");
+  assert.deepEqual(b.groups[0].terms.map((t) => [t.op, t.label, t.amount]), [
+    ["", "BEGINNING BALANCE 07/01/19", "5,057.32"], ["+", "FEES COLLECTED", "11,841.83"], ["+", "INTEREST EARNED", "471.42"],
+    ["−", "REFUNDS", "–"], ["+", "EXPENDITURES", "(1,000.00)"],
+  ]);
+  assert.equal(b.groups[0].total.label, "ENDING BALANCE 6/30/20");
+  assert.deepEqual(b.notes, ["The table is headed 2019/20."]);
+
+  // "that total" refers back; lines the note names without amounts stay blank.
+  const c = readArithmetic("The column headed FY 2019/20 accounts for itself: its revenue lines give the printed revenue total of 1,184; opening balance 18,552 (Fund Balance, Beginning of Year) plus that total, less the expenditure total and plus the financing total, gives the printed Fund Balance, End of Year of 19,736.");
+  assert.deepEqual(c.groups[0].terms.map((t) => [t.op, t.label, t.amount]), [
+    ["", "Fund Balance, Beginning of Year", "18,552"], ["+", "Revenue total", "1,184"], ["−", "Expenditure total", ""], ["+", "Financing total", ""],
+  ]);
+  assert.deepEqual(c.notes, []);
+
+  // An equation that does not close is left in the release's words.
+  const d = readArithmetic("Beginning balance 100 + Fees 50 = the printed Ending balance 175.");
+  assert.equal(d.groups.length, 0);
+  assert.deepEqual(d.notes, ["Beginning balance 100 + Fees 50 = the printed Ending balance 175."]);
+  assert.deepEqual(readArithmetic(""), { groups: [], notes: [] });
 }
 
 // Geometry: MuPDF top-left coordinates relative to the CropBox -> PDF user space.

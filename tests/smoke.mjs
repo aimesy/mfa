@@ -107,8 +107,10 @@ try {
   // Evidence panel: outlined page, hash check, box on the drawn outline
   await page.locator(".figures-grid tbody tr").first().click();
   await page.waitForSelector(".pv-box.current", { state: "attached" });
-  await page.waitForFunction(() => /matches the release/.test(document.querySelector(".pv-verify")?.innerText || ""));
+  await page.waitForFunction(() => /SHA-256 .* matches/.test(document.querySelector(".pv-verify")?.innerText || ""));
   assert.ok(await redRatio(page) > 0.3, "the mapped box sits on the evidence file's red outline");
+  const headings = await page.locator(".detail h3").allInnerTexts();
+  assert.ok(headings.every((h) => ["ARITHMETIC", "NOTES", "ROWS", "SOURCE", "REVIEW"].includes(h.toUpperCase())), `detail headings: ${headings}`);
   await page.waitForTimeout(400);
   await shot(page, "02-evidence-outlined");
 
@@ -148,7 +150,7 @@ try {
     .sort((a, b) => Number(a.source_bytes) - Number(b.source_bytes))[0];
   if (big) {
     await page.goto(`${base}&view=sources&doc=${encodeURIComponent(big.source_id)}`);
-    await page.waitForFunction(() => /Read by byte range/.test(document.querySelector(".pv-verify")?.innerText || ""), null, { timeout: 60000 });
+    await page.waitForFunction(() => /Hash not checked/.test(document.querySelector(".pv-verify")?.innerText || ""), null, { timeout: 60000 });
     await page.waitForSelector(".pv-box.other", { state: "attached", timeout: 60000 });
     await shot(page, "06-source-range");
   }

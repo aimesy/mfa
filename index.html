@@ -58,7 +58,7 @@
             <span id="stats" class="hdr-stats">opening the release</span>
           </div>
           <div class="hdr-right">
-            <button class="hbtn" id="export-btn" type="button" title="Download the primary row of every figure in the current view as CSV" hidden>CSV</button>
+            <button class="hbtn" id="export-btn" type="button" title="Download this view (primary rows) as CSV" hidden>CSV</button>
             <a class="hbtn" id="repo-link" href="https://github.com/aimesy/mfa-data" target="_blank" rel="noopener">GitHub</a>
           </div>
         </div>
@@ -71,7 +71,7 @@
           <a class="view-tab" data-view="sources" href="?view=sources">Sources</a>
           <a class="view-tab" data-view="about" href="?view=about">About</a>
         </div>
-        <span class="view-strip-note">Sum primary figures only · no figure means unknown, never zero</span>
+        <span class="view-strip-note">Primary rows only · empty ≠ zero</span>
       </nav>
 
       <section class="toolbar" id="toolbar" hidden></section>
@@ -81,7 +81,7 @@
           <span class="loading-spinner" aria-hidden="true"></span>
           <div class="loading-copy">
             <div id="loading-msg">Opening the release</div>
-            <div id="loading-detail">Finding the current mfa-data commit.</div>
+            <div id="loading-detail">Finding the release.</div>
           </div>
           <button class="btn loading-retry" id="loading-retry" type="button" hidden>Retry</button>
         </div>

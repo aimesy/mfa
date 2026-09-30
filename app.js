@@ -12,9 +12,11 @@
 import { parseCsvObjects, toCsv } from "./lib/csv.js";
 import {
   buildModel, filterFigures, sortFigures, summarize, entityMatrix, coverageByYear,
-  fmtUsd, fmtSum, fmtInt, fmtBytes, fmtFy, fyRanges, humanize, scopeLabel, entityTypeLabel,
+  fmtUsd, fmtSum, fmtInt, fmtBytes, fmtFy, fyRanges, humanize, scopeLabel, scopeKey, entityTypeLabel,
+  basisLabel, grossNetLabel, roleLabel, statusLabel, publicationTypeLabel,
   splitLimitations, EMPTY_FILTERS, NONE, matchesChoice, SORT_COLUMNS,
 } from "./lib/model.js";
+import { readArithmetic } from "./lib/arith.js";
 import { PdfViewer } from "./lib/viewer.js";
 import { checkOutline } from "./lib/evidence.js";
 import { el, svg } from "./lib/dom.js";
@@ -161,7 +163,7 @@ function readState() {
     type: p.get("type") || "",
     county: p.get("county") || "",
     cat: p.get("cat") || "",
-    scope: p.get("scope") || "",
+    scope: scopeKey(p.get("scope") || ""),
     fyFrom: p.get("from") || "",
     fyTo: p.get("to") || "",
     arith: ["yes", "no"].includes(p.get("arith")) ? p.get("arith") : "",
@@ -267,10 +269,10 @@ function ensureManifest() {
 
 async function boot() {
   try {
-    showLoading("Opening the release", "Finding the current mfa-data commit.");
+    showLoading("Loading", "Finding the release.");
     await resolveRef();
     renderReleaseLabel();
-    showLoading("Reading the release", "data/reported-fee-collections.csv and sources/index.csv");
+    showLoading("Loading", "Reading the release.");
     const [feeText, sourceText] = await Promise.all([
       fetchText("data/reported-fee-collections.csv"),
       fetchText("sources/index.csv"),
@@ -287,7 +289,7 @@ async function boot() {
     renderAll();
   } catch (err) {
     console.error(err);
-    showLoading("The release could not be read", String(err.message || err), true);
+    showLoading("Failed to load", String(err.message || err), true);
   }
 }
 
@@ -317,7 +319,7 @@ function renderReleaseLabel() {
   const short = /^[0-9a-f]{40}$/.test(cfg.ref) ? cfg.ref.slice(0, 7) : cfg.ref;
   a.textContent = `release @ ${short}`;
   a.href = /^[0-9a-f]{40}$/.test(cfg.ref) ? `${GITHUB_ROOT}commit/${cfg.ref}` : `${GITHUB_ROOT}tree/${cfg.ref}`;
-  a.title = `Every file this page shows is read from ${REPO} at ${cfg.ref}`;
+  a.title = `${REPO} @ ${cfg.ref}`;
   $("repo-link").href = `${GITHUB_ROOT}tree/${githubRef()}`;
 }
 
@@ -437,10 +439,10 @@ function renderToolbar() {
       chip("Land use", select("scope", choices(model.scopes, scopeLabel), f.scope, setF("scope"))),
       chip("FY from", select("from", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyFrom, setF("fyFrom"))),
       chip("to", select("to", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyTo, setF("fyTo"))),
-      chip("Arithmetic", select("arith", [["", "Any"], ["yes", "Check recorded"], ["no", "No check"]], f.arith, setF("arith"))),
+      chip("Arithmetic", select("arith", [["", "Any"], ["yes", "Yes"], ["no", "No"]], f.arith, setF("arith"))),
     );
     bar.append(
-      chip("Search", searchInput("q", f.q, "jurisdiction, fee, label, caveat… \"quoted phrase\"", setF("q"))),
+      chip("Search", searchInput("q", f.q, "jurisdiction, fee, label…", setF("q"))),
       toggle,
       more,
       el("button", { class: "btn", type: "button", text: "Clear", onclick: clearFilters }),
@@ -541,13 +543,13 @@ function activeFilterTags() {
   if (f.cat) tags.push(filterTag(`Category: ${choiceLabel(f.cat, humanize)}`, drop("cat")));
   if (f.scope) tags.push(filterTag(`Land use: ${choiceLabel(f.scope, scopeLabel)}`, drop("scope")));
   if (f.fyFrom || f.fyTo) tags.push(filterTag(`FY ${fmtFy(f.fyFrom) || "…"} to ${fmtFy(f.fyTo) || "…"}`, () => { state.filters.fyFrom = ""; state.filters.fyTo = ""; update(); }));
-  if (f.arith) tags.push(filterTag(f.arith === "yes" ? "Arithmetic check recorded" : "No arithmetic check", drop("arith")));
+  if (f.arith) tags.push(filterTag(`Arithmetic: ${f.arith === "yes" ? "yes" : "no"}`, drop("arith")));
   return tags;
 }
 
 function sumNote(summary) {
-  return el("span", { class: "sum", title: "Each printed figure is added once, through its primary row. Coverage differs by agency and year, so this is a sum of what is shown, not a statewide total." },
-    "sum of figures shown ", el("strong", { text: fmtSum(summary.sum) }));
+  return el("span", { class: "sum", title: "Primary rows only. Not a statewide total." },
+    "sum ", el("strong", { text: fmtSum(summary.sum) }));
 }
 
 function sortHeader(label, col, sort, onSort, cls = "") {
@@ -590,7 +592,7 @@ function renderFigures(content) {
     el("thead", {}, el("tr", {},
       sortHeader("Jurisdiction", "entity", s, onSort, "col-entity"),
       sortHeader("FY", "fy", s, onSort, "col-fy"),
-      sortHeader("Fee program, as printed", "program", s, onSort, "col-program"),
+      sortHeader("Fee program", "program", s, onSort, "col-program"),
       sortHeader("Category", "category", s, onSort, "col-cat"),
       sortHeader("Printed label", "label", s, onSort, "col-label"),
       sortHeader("Amount", "value", s, onSort, "col-amount num"),
@@ -625,28 +627,18 @@ function badge(text, title, cls = "") {
   return el("span", { class: `badge ${cls}`, title, text });
 }
 
-// Only scopes the source itself establishes get a badge. "Not split" and
-// "residential and non-residential, not split" mean the share is unknown.
-const SCOPE_BADGES = {
-  residential_only_stated_in_source: "Res",
-  residential_only_printed_subtotal: "Res",
-  residential_only: "Res",
-  residential: "Res",
-  residential_stated_schedule_not_reproduced: "Res",
-  nonresidential_only_stated_in_source: "Non-res",
-  mixed_residential_and_nonresidential_stated_in_source: "Mixed",
-};
+// "Not split" gets no badge: it is nearly every figure.
+const SCOPE_BADGES = { residential: "Res", nonresidential: "Non-res", mixed: "Mixed" };
 
 function figureBadges(fig) {
   const p = fig.primary;
   const out = [];
-  if (fig.arith) out.push(badge("Σ", "Arithmetic check recorded: the source's own totals or roll-forward confirm the row and column", "b-arith"));
-  const scope = p.land_use_scope || "";
-  const scopeBadge = SCOPE_BADGES[scope];
-  if (scopeBadge) out.push(badge(scopeBadge, `Land-use scope: ${scopeLabel(scope)}`, "b-scope"));
-  if (fig.restatements.length) out.push(badge(`×${fig.rows.length}`, `Recorded at ${fig.rows.length} measure grains. The same printed number, summed once.`, "b-restated"));
-  if (fig.thousands) out.push(badge("000s", "Printed in whole thousands; value_usd is the printed number × 1,000", "b-thousands"));
-  if (fig.zero) out.push(badge("0", "The source prints a zero", "b-zero"));
+  if (fig.arith) out.push(badge("Σ", "Arithmetic check", "b-arith"));
+  const scopeBadge = SCOPE_BADGES[scopeKey(p.land_use_scope)];
+  if (scopeBadge) out.push(badge(scopeBadge, `Land use: ${scopeLabel(p.land_use_scope)}`, "b-scope"));
+  if (fig.restatements.length) out.push(badge(`×${fig.rows.length}`, `${fig.rows.length} rows, summed once`, "b-restated"));
+  if (fig.thousands) out.push(badge("000s", "Printed in thousands", "b-thousands"));
+  if (fig.zero) out.push(badge("0", "Printed zero", "b-zero"));
   return out;
 }
 
@@ -733,13 +725,13 @@ function renderEntities(content) {
   content.append(
     el("div", { class: "result-bar" },
       el("span", {}, el("strong", { text: fmtInt(list.length) }), ` jurisdiction${list.length === 1 ? "" : "s"} · ${fmtInt(figures)} figures`),
-      el("span", { class: "sum", title: "Sum of each jurisdiction's primary figures across the fiscal years present. Years and programs covered differ by jurisdiction." }, "sum of figures shown ", el("strong", { text: fmtSum(total) }))),
+      el("span", { class: "sum", title: "Primary rows only. Coverage differs by jurisdiction." }, "sum ", el("strong", { text: fmtSum(total) }))),
     el("div", { class: "table-scroll" }, el("table", { class: "grid entities-grid" },
       el("thead", {}, el("tr", {},
         sortHeader("Jurisdiction", "name", s, onSort, "col-entity"),
         sortHeader("Type", "type", s, onSort),
         sortHeader("County", "county", s, onSort),
-        el("th", { scope: "col", class: "col-years" }, el("span", { class: "col-label", text: "Fiscal years present" })),
+        el("th", { scope: "col", class: "col-years" }, el("span", { class: "col-label", text: "Fiscal years" })),
         sortHeader("Years", "years", s, onSort, "num"),
         sortHeader("Figures", "figures", s, onSort, "num"),
         sortHeader("Programs", "programs", s, onSort, "num"),
@@ -793,15 +785,12 @@ function renderEntityDossier(content) {
         update({ push: true });
       }, text: "Show in figures table" }),
       copyButton("Copy link", () => new URL(urlFor(), location.href).href)),
-    el("p", { class: "note" },
-      "Each cell is a figure as the report prints it; click one to see its page. ",
-      el("strong", { text: "An empty cell means this release has no figure for that program and year" }),
-      ", which is not the same as a zero. Program names are the report's own, so a fund renamed between years appears on two lines."),
+    el("p", { class: "note", text: "Empty = no figure, not zero." }),
   );
 
   const years = matrix.years;
   const thead = el("thead", {}, el("tr", {},
-    el("th", { class: "mx-program", scope: "col", text: "Fee program, as printed" }),
+    el("th", { class: "mx-program", scope: "col", text: "Fee program" }),
     years.map((y) => el("th", { class: "num", scope: "col", text: fmtFy(y) }))));
   const tbody = el("tbody");
   for (const g of matrix.groups) {
@@ -811,7 +800,7 @@ function renderEntityDossier(content) {
         el("th", { class: "mx-program", scope: "row", title: row.program, text: row.program }),
         years.map((y) => {
           const figs = row.cells.get(y);
-          if (!figs) return el("td", { class: "mx-empty", title: `No figure in this release for ${row.program} in FY ${fmtFy(y)}. Not a zero.` }, el("span", { "aria-label": "no figure", text: "·" }));
+          if (!figs) return el("td", { class: "mx-empty", title: "No figure" }, el("span", { "aria-label": "no figure", text: "·" }));
           return el("td", { class: "num" }, figs.map((fig) => el("button", {
             class: `mx-cell ${fig.id === state.figure ? "selected" : ""}`,
             type: "button",
@@ -834,7 +823,7 @@ function renderEntityDossier(content) {
   content.append(
     head,
     el("div", { class: "table-scroll" }, el("table", { class: "grid matrix" }, thead, tbody, tfoot)),
-    el("h3", { class: "section-label", text: `Reports these figures come from (${sources.length})` }),
+    el("h3", { class: "section-label", text: `Reports (${sources.length})` }),
     sourcesTable(sources, { compact: true }),
   );
 }
@@ -873,7 +862,7 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
     },
       compact ? null : el("td", { class: "col-entity", text: src.receiving_entity }),
       el("td", { class: "col-title", title: src.publication_title, text: src.publication_title }),
-      el("td", { class: "col-type", title: src.publication_type, text: humanize(src.publication_type) }),
+      el("td", { class: "col-type", title: src.publication_type, text: publicationTypeLabel(src.publication_type) }),
       el("td", { class: "col-fy", text: fmtFy(src.covers_fiscal_year) }),
       el("td", { class: "num", text: src._pages ? fmtInt(src._pages) : "" }),
       el("td", { class: "num", text: fmtBytes(src._bytes) }),
@@ -884,7 +873,7 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
         text: fmtInt(src._figures),
       }) : "0"),
       el("td", { class: "col-evidence" }, el("span", { class: "ev-links" },
-        el("button", { class: "pdf-btn", type: "button", text: "Open", title: "Open the original report here, with its published figures outlined", onclick: () => openDoc(src.source_id) }),
+        el("button", { class: "pdf-btn", type: "button", text: "Open", title: "Open report", onclick: () => openDoc(src.source_id) }),
         off ? el("a", { class: "pdf-btn ext", href: off, target: "_blank", rel: "noopener", title: "Official source", "aria-label": "Official source", text: "↗" }) : null)),
     ));
   }
@@ -916,8 +905,7 @@ function renderSources(content) {
   const pages = list.reduce((s, x) => s + (x._pages || 0), 0);
   content.append(
     el("div", { class: "result-bar" },
-      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` publication${list.length === 1 ? "" : "s"} · ${fmtInt(pages)} pages`),
-      el("span", { class: "muted", text: "Each is the complete original report, held in the release with its SHA-256. Several agencies can share one combined filing." })),
+      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` publication${list.length === 1 ? "" : "s"} · ${fmtInt(pages)} pages`)),
     sourcesTable(list, { sortable: true }),
   );
 }
@@ -938,28 +926,28 @@ function renderAbout(content) {
     tile("Fiscal years", fmtInt(model.years.length), `${fmtFy(firstFy)} to ${fmtFy(lastFy)}`),
   );
   const wrap = el("div", { class: "about" },
-    el("h2", { text: "What this site shows" }),
-    el("p", {}, "Every figure in the ",
+    el("h2", { text: "About" }),
+    el("p", {}, "Impact fee collections California agencies reported, from the ",
       el("a", { href: `${GITHUB_ROOT}tree/${githubRef()}`, target: "_blank", rel: "noopener", text: "mfa-data" }),
-      " release: fee collections that California agencies reported in their own impact-fee reports. Each figure opens beside the page it was read from, with the outline the reviewers drew around it, the original report at that page, and the caveats recorded for it. The page reads the release's files directly and derives no figures of its own."),
+      " release. Each figure opens on its outlined page in the original report. No figures are derived."),
     tiles,
     el("h3", { class: "section-label", text: "Figures by fiscal year" }),
     coverageChart(cov),
-    el("p", { class: "note", text: "Bar height counts published figures. It shows which reports the release reached, not how much agencies collected." }),
-    el("h3", { class: "section-label", text: "Reading the figures" }),
+    el("p", { class: "note", text: "Counts figures, not dollars." }),
+    el("h3", { class: "section-label", text: "Rules" }),
     el("ul", { class: "rules" },
-      el("li", {}, el("strong", { text: "Add primary rows only. " }), "Some printed numbers are recorded at two measure grains and share a figure_group_id. This site shows each printed figure once and adds it once."),
-      el("li", {}, el("strong", { text: "Missing is not zero. " }), "Where the release has no figure for a program or year, the site leaves the cell empty. A zero appears only where the report prints one."),
-      el("li", {}, el("strong", { text: "Land-use scope comes from the source. " }), "Residential share is unknown for almost every figure, because reports print one undivided amount. Scope is never inferred from a fee's name."),
-      el("li", {}, el("strong", { text: "Not every figure is a Mitigation Fee Act fee. " }), "Quimby Act in-lieu accounts, section 66013 capacity charges and development-agreement fees appear where agencies reported them beside impact fees; the figure's limitations say so."),
-      el("li", {}, el("strong", { text: "Accounting basis is usually not stated. " }), "Where the report states it, the figure says so."),
+      el("li", { text: "Sums add primary rows only." }),
+      el("li", { text: "Empty is not zero." }),
+      el("li", { text: "Land use is as the source states it. Almost all figures are not split." }),
+      el("li", { text: "Includes Quimby in-lieu, §66013 capacity charges and development-agreement fees where reported." }),
+      el("li", { text: "Accounting basis is mostly not stated." }),
     ),
-    el("div", { id: "about-release" }, el("p", { class: "muted", text: "Reading the release accounting…" })),
+    el("div", { id: "about-release" }, el("p", { class: "muted", text: "Loading…" })),
   );
   content.append(wrap);
   loadAbout().then(() => fillAbout()).catch((err) => {
     const slot = $("about-release");
-    if (slot) slot.replaceChildren(el("p", { class: "muted", text: `The release accounting could not be read: ${err.message}` }));
+    if (slot) slot.replaceChildren(el("p", { class: "muted", text: `Failed to load: ${err.message}` }));
   });
 }
 
@@ -992,18 +980,17 @@ function fillAbout() {
   const doc = (path, label) => el("a", { href: blobUrl(path), target: "_blank", rel: "noopener", text: label });
   const kv = (k, v) => el("tr", {}, el("th", { scope: "row", text: k }), el("td", { class: "num", text: v }));
   slot.replaceChildren(
-    el("h3", { class: "section-label", text: "What was reviewed and what was refused" }),
+    el("h3", { class: "section-label", text: "Review" }),
     el("p", {}, cohort.what_this_is || ""),
     el("table", { class: "grid kv" }, el("tbody", {},
-      kv("Cohort rows reviewed", fmtInt(cohort.reviewed)),
-      kv("Published from the cohort", fmtInt(cohort.published)),
+      kv("Cohort reviewed", fmtInt(cohort.reviewed)),
+      kv("Cohort published", fmtInt(cohort.published)),
       kv("Refused", fmtInt(cohort.refused)),
-      kv("Left undecided", fmtInt(cohort.remaining_undecided)),
-      kv("Rows reviewed outside the cohort (statewide lane)", fmtInt(cohort.statewide_lane_rows_in_data_file)),
-      kv("Rows in the data file", fmtInt(cohort.total_rows_in_data_file)))),
+      kv("Undecided", fmtInt(cohort.remaining_undecided)),
+      kv("Statewide lane", fmtInt(cohort.statewide_lane_rows_in_data_file)),
+      kv("Total rows", fmtInt(cohort.total_rows_in_data_file)))),
     el("p", { class: "note", text: cohort.statewide_lane_note || "" }),
-    el("h3", { class: "section-label", text: "Refusals by reason" }),
-    el("p", { class: "note", text: "Counts only. No refused amount is published anywhere in the release." }),
+    el("h3", { class: "section-label", text: "Refusals" }),
     el("div", { class: "table-scroll" }, el("table", { class: "grid" },
       el("thead", {}, el("tr", {}, ["Reason", "Rows", "Agencies", "Documents"].map((h, i) => el("th", { scope: "col", class: i ? "num" : "", text: h })))),
       el("tbody", {}, refusals.map((r) => el("tr", {},
@@ -1011,10 +998,10 @@ function fillAbout() {
         el("td", { class: "num", text: fmtInt(Number(r.rows_refused)) }),
         el("td", { class: "num", text: fmtInt(Number(r.agencies_affected)) }),
         el("td", { class: "num", text: fmtInt(Number(r.source_documents_affected)) })))))),
-    el("h3", { class: "section-label", text: "Tables with no rows" }),
+    el("h3", { class: "section-label", text: "Empty tables" }),
     el("ul", { class: "rules" }, empties.map((t) => el("li", {},
       doc(`data/${t.name}.csv`, `${t.name}.csv`),
-      t.rows ? ` has ${fmtInt(t.rows)} rows.` : " has headers and no rows. No figure meets the stronger bar it requires. Empty means not established, never zero."))),
+      t.rows ? ` · ${fmtInt(t.rows)} rows` : " · no rows"))),
     el("h3", { class: "section-label", text: "Release files" }),
     el("table", { class: "grid kv" }, el("tbody", {},
       kv("Release", manifest.release || ""),
@@ -1212,8 +1199,8 @@ function renderFigurePanel(panel, fig, list) {
   ] : [];
 
   const tabs = el("div", { class: "ev-tabs", role: "tablist", "aria-label": "Evidence file" },
-    evTab("outlined", `Outlined page · p.${fig.page}`, "The single page cut from the report, with a box around this figure and no other"),
-    evTab("original", `Original report · p.${state.tab === "original" && state.pg ? state.pg : fig.page}`, "The complete original report, opened at this page"),
+    evTab("outlined", `Outlined page · p.${fig.page}`, "This figure's page, outlined"),
+    evTab("original", `Original report · p.${state.tab === "original" && state.pg ? state.pg : fig.page}`, "Full report"),
   );
 
   const off = officialUrl(p.official_source_url, fig.page);
@@ -1281,7 +1268,7 @@ async function showFigureEvidence(fig) {
       page: 1,
       paging: false,
       outlineInFile: true,
-      mismatchNote: "This figure's recorded rectangle (outline_rect_pdf_points) does not line up with the outline drawn in this file. The drawn outline is the one the reviewers checked, so the site adds no marker of its own here.",
+      mismatchNote: "Recorded rectangle doesn't match the drawn outline. No marker added.",
       boxesForPage: () => [figureBox(fig, true)],
     });
   } else {
@@ -1294,7 +1281,7 @@ async function showFigureEvidence(fig) {
       page: state.pg || fig.page,
       paging: true,
       outlineInFile: false,
-      mismatchNote: "No box is drawn: this figure's recorded rectangle does not line up with the outline in its evidence file. The Outlined page tab shows where the reviewers marked it.",
+      mismatchNote: "No box: recorded rectangle doesn't match the outline. See Outlined page.",
       boxesForPage: (n) => figuresOnPage(p.source_pdf, n).map((f) => figureBox(f, f.id === fig.id)),
     });
   }
@@ -1328,35 +1315,52 @@ function para(text, empty = "") {
   return text && text.trim() ? el("p", { text }) : el("p", { class: "muted", text: empty });
 }
 
+// The release's arithmetic_check, as tables where lib/arith.js can read it.
+function arithmeticView(text) {
+  if (!text || !text.trim()) return para("", "None recorded.");
+  const { groups, notes } = readArithmetic(text);
+  if (!groups.length) return para(text);
+  const row = (op, label, amount, cls = "") => el("tr", { class: cls },
+    el("td", { class: "op", text: op }), el("th", { scope: "row", text: label }), el("td", { class: "num", text: amount }));
+  return [
+    el("table", { class: "grid arith" }, groups.map((g) => el("tbody", {},
+      g.terms.map((t) => row(t.op, t.label, t.amount)),
+      g.total ? row("=", g.total.label, g.total.amount, "total") : null))),
+    notes.length ? el("ul", { class: "arith-notes" }, notes.map((n) => el("li", { text: n }))) : null,
+  ];
+}
+
 function figureDetails(fig) {
   const p = fig.primary;
   const lims = splitLimitations(p.source_limitations);
   const dl = (pairs) => el("dl", { class: "kv-list" }, pairs.filter(([, v]) => v !== "" && v != null).map(([k, v]) => [el("dt", { text: k }), el("dd", {}, v)]));
   const mono = (t) => el("code", { class: "wrap", text: t });
   return el("div", { class: "details" },
-    section("How the figure was read", para(p.measure_read_from_source, "Not recorded.")),
-    section("Arithmetic check", para(p.arithmetic_check, "None recorded. This figure rests on the visual review, the printed label, the column header and the footnotes.")),
-    section("Land-use scope", el("p", {}, el("strong", { text: scopeLabel(p.land_use_scope) })), para(p.land_use_basis)),
-    section("Limitations", lims.length ? el("ul", {}, lims.map((t) => el("li", { text: t }))) : para("", "None recorded.")),
-    section("Measure", dl([
-      ["Accounting basis", humanize(p.accounting_basis_source_read)],
-      ["Gross or net", humanize(p.gross_or_net_source_read)],
-      ["Fiscal year", `${fmtFy(fig.fy)} (${p.fiscal_year_start} to ${p.fiscal_year_end})`],
-      ["Fiscal year from", humanize(p.fiscal_year_basis)],
+    el("section", { class: "detail" }, dl([
+      ["Land use", scopeLabel(p.land_use_scope)],
+      ["Basis", basisLabel(p.accounting_basis_source_read)],
+      ["Gross/net", grossNetLabel(p.gross_or_net_source_read)],
+      ["Fiscal year", el("span", { title: humanize(p.fiscal_year_basis), text: `${fmtFy(fig.fy)} · ${p.fiscal_year_start} to ${p.fiscal_year_end}` })],
       ["Category", humanize(fig.category)],
-    ]),
-    fig.rows.length > 1 ? el("p", { class: "note", text: `This printed number is recorded at ${fig.rows.length} measure grains. Only the primary row is added into sums.` }) : null,
-    el("table", { class: "grid rows" },
-      el("thead", {}, el("tr", {}, ["Record", "Measure", "Role", ""].map((h) => el("th", { scope: "col", text: h })))),
-      el("tbody", {}, fig.rows.map((r) => el("tr", {},
-        el("td", {}, mono(r.record_id)),
-        el("td", { text: humanize(r.measure) }),
-        el("td", { text: humanize(r.measure_role) }),
-        el("td", { text: r._primary ? "primary" : "" })))))),
+    ])),
+    section("Arithmetic", arithmeticView(p.arithmetic_check)),
+    section("Notes", dl([
+      ["Location", p.measure_read_from_source],
+      ["Land use", p.land_use_basis],
+      ["Limits", lims.length ? el("ul", {}, lims.map((t) => el("li", { text: t }))) : ""],
+    ])),
+    fig.rows.length > 1 ? section("Rows",
+      el("table", { class: "grid rows" },
+        el("thead", {}, el("tr", {}, ["Record", "Measure", "Role"].map((h) => el("th", { scope: "col", text: h })))),
+        el("tbody", {}, fig.rows.map((r) => el("tr", {},
+          el("td", {}, mono(r.record_id)),
+          el("td", { text: humanize(r.measure) }),
+          el("td", { text: roleLabel(r.measure_role) }))))),
+      el("p", { class: "note", text: "Only the primary row is summed." })) : null,
     section("Source", dl([
       ["Publication", p.publication_title],
-      ["Type", humanize(p.publication_type)],
-      ["Page", `PDF page ${fig.page}${p.printed_page ? ` · printed page ${p.printed_page}` : ""}`],
+      ["Type", publicationTypeLabel(p.publication_type)],
+      ["Page", `PDF ${fig.page}${p.printed_page ? ` · printed ${p.printed_page}` : ""}`],
       ["Located at", p.internal_identifier],
       ["Source id", mono(p.source_id)],
       ["SHA-256", mono(p.source_sha256)],
@@ -1365,9 +1369,10 @@ function figureDetails(fig) {
       ["Outline", mono(p.outline_rect_pdf_points)],
     ])),
     section("Review", dl([
-      ["Status", humanize(p.validation_status)],
+      ["Status", statusLabel(p.validation_status)],
       ["Batch", p.review_batch],
       ["Reviewed (UTC)", p.reviewed_utc],
+      ["Record", mono(p.record_id)],
     ])),
   );
 }
@@ -1387,7 +1392,7 @@ function renderDocPanel(panel, src) {
   panel.replaceChildren(
     panelTop([copyButton("Copy link", () => new URL(urlFor(), location.href).href)]),
     el("div", { class: "panel-head" },
-      el("div", { class: "kicker", text: `${humanize(src.publication_type)} · covers FY ${fmtFy(src.covers_fiscal_year)}` }),
+      el("div", { class: "kicker", text: `${publicationTypeLabel(src.publication_type)} · FY ${fmtFy(src.covers_fiscal_year)}` }),
       el("h2", { text: src.publication_title }),
       el("div", { class: "sub" },
         model.entityByName.has(src.receiving_entity)
@@ -1399,14 +1404,14 @@ function renderDocPanel(panel, src) {
       fileLink(src.source_pdf, "Original report"),
       off ? el("a", { href: off, target: "_blank", rel: "noopener", text: "Official source ↗" }) : null),
     el("div", { class: "details" },
-      section(`Published figures in this report (${figs.length})`,
+      section(`Figures (${figs.length})`,
         figs.length ? el("table", { class: "grid rows" },
           el("thead", {}, el("tr", {}, ["Page", "FY", "Fee program", "Amount"].map((h, i) => el("th", { scope: "col", class: i === 3 ? "num" : "", text: h })))),
           el("tbody", {}, figs.map((f) => el("tr", { onclick: () => openFigure(f.id, { list: figs, tab: "original" }) },
             el("td", {}, el("button", { class: "pdf-btn", type: "button", text: `p.${f.page}`, onclick: (ev) => { ev.stopPropagation(); viewer.goToPage(f.page); state.pg = f.page; writeUrl(false); } })),
             el("td", { text: fmtFy(f.fy) }),
             el("td", { text: f.program }),
-            el("td", { class: "num", text: fmtUsd(f.value) }))))) : para("", "No published figure comes from this report.")),
+            el("td", { class: "num", text: fmtUsd(f.value) }))))) : para("", "None.")),
       section("Source", el("dl", { class: "kv-list" },
         el("dt", { text: "Source id" }), el("dd", {}, el("code", { class: "wrap", text: src.source_id })),
         el("dt", { text: "SHA-256" }), el("dd", {}, el("code", { class: "wrap", text: src.source_sha256 })),
