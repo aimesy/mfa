@@ -48,7 +48,11 @@ import { readPageLines, figureColumn, namesFromPage } from "../lib/pagelines.js"
   assert.equal(summarize(m.figures).sum, 125.5);
   assert.equal(m.entityByName.get("City of Example").sum, 100.5);
   assert.equal(m.sourceById.get("s1")._figures, 3);
-  assert.deepEqual(g1.primary._rect, [10, 20, 60, 30]);
+  assert.deepEqual(g1.primary._rects, [[10, 20, 60, 30]]);
+  // Words outlined over two printed lines are recorded as one rectangle per line.
+  const outline = (text) => buildModel([{ ...rows[0], outline_rect_pdf_points: text }], []).figures[0].primary._rects;
+  assert.deepEqual(outline("[[302.8, 560.4, 544.64, 573.84], [76.96, 573.84, 122.48, 585.44]]"), [[302.8, 560.4, 544.64, 573.84], [76.96, 573.84, 122.48, 585.44]]);
+  for (const bad of ["[]", "[[1, 2, 3]]", "[[1, 2, 3, 4], null]", "[1, 2, 3]", "not json"]) assert.equal(outline(bad), null, bad);
 
   assert.equal(filterFigures(m.figures, { county: NONE }).length, 1);
   assert.equal(filterFigures(m.figures, { cat: NONE }).length, 1);
@@ -237,7 +241,7 @@ if (existsSync(releaseCsv)) {
   assert.equal(m.figures.length, groups.size);
   const primarySum = fees.rows.filter((r) => r.is_primary_in_figure_group === "true").reduce((s, r) => s + Number(r.value_usd), 0);
   assert.ok(Math.abs(summarize(m.figures).sum - primarySum) < 0.01, "model sum equals the sum of primary rows");
-  assert.ok(m.figures.every((f) => f.primary._rect && f.page), "every figure has an outline rectangle and a page");
+  assert.ok(m.figures.every((f) => f.primary._rects && f.page), "every figure has an outline and a page");
   const unknownSources = m.figures.filter((f) => !m.sourceById.has(f.sourceId));
   assert.equal(unknownSources.length, 0, "every figure's source is in sources/index.csv");
   console.log(`release: ${fees.rows.length} rows, ${m.figures.length} figures, ${m.entities.length} jurisdictions, ${m.sources.length} sources`);

@@ -1371,13 +1371,13 @@ function verifyOutline(fig) {
   const p = fig.primary;
   return ensureManifest().catch(() => null).then((m) => {
     const meta = m?.files.get(p.outlined_figure_pdf);
-    return checkOutline(dataUrl(p.outlined_figure_pdf), p._rect, { sha256: meta?.sha256, bytes: meta?.bytes });
+    return checkOutline(dataUrl(p.outlined_figure_pdf), p._rects, { sha256: meta?.sha256, bytes: meta?.bytes });
   });
 }
 
 function figureBox(f, current) {
   return {
-    rect: f.primary._rect,
+    rects: f.primary._rects,
     id: f.id,
     current,
     label: `${f.program} · FY ${fmtFy(f.fy)} · ${f.label}: ${f.primary.source_value_text}`,

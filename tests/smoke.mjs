@@ -61,10 +61,10 @@ async function shot(page, name) {
   if (shots) await page.screenshot({ path: path.join(shots, `${name}.png`) });
 }
 
-// Red outline pixels along the edge of the viewer's current box.
+// Red outline pixels along the edge of the viewer's current box; for a figure
+// outlined in parts, the least of its parts.
 async function redRatio(page) {
-  return page.evaluate(() => {
-    const node = document.querySelector(".pv-box.current");
+  return page.evaluate(() => Math.min(...[...document.querySelectorAll(".pv-box.current")].map((node) => {
     const [x, y, w, h] = JSON.parse(node.dataset.canvasBox);
     const c = document.querySelector(".pv-stage canvas");
     const pad = 6;
@@ -76,7 +76,7 @@ async function redRatio(page) {
     let red = 0;
     for (let k = 0; k < px.length; k += 4) if (px[k] > 150 && px[k + 1] < 110 && px[k + 2] < 110) red += 1;
     return red / (2 * (w + h));
-  });
+  })));
 }
 
 async function openFigureById(page, id) {
@@ -154,6 +154,19 @@ try {
     await page.waitForSelector(".pv-note:not([hidden])");
     assert.equal(await page.locator(".pv-box.current").count(), 0, "no box drawn from a rectangle that fails the outline check");
     await shot(page, "04-outline-mismatch");
+    await page.keyboard.press("Escape");
+  }
+
+  // Words outlined over two printed lines get a box on each line, on both tabs.
+  const twoPart = primary.find((r) => r.outline_rect_pdf_points.startsWith("[["));
+  if (twoPart) {
+    const parts = JSON.parse(twoPart.outline_rect_pdf_points).length;
+    await openFigureById(page, twoPart.figure_group_id);
+    await page.waitForFunction((n) => document.querySelectorAll(".pv-box.current").length === n, parts);
+    assert.ok(await redRatio(page) > 0.3, "each part's box sits on its red outline");
+    await shot(page, "04a-two-part-outline");
+    await page.click(".ev-tab:nth-child(2)");
+    await page.waitForFunction((n) => document.querySelectorAll(".pv-box.current:not(.in-file)").length === n, parts);
     await page.keyboard.press("Escape");
   }
 
