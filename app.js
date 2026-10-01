@@ -28,7 +28,7 @@ const REPO = "aimesy/mfa-data";
 const DEFAULT_BRANCH = "main";
 const RAW_ROOT = `https://raw.githubusercontent.com/${REPO}/`;
 const GITHUB_ROOT = `https://github.com/${REPO}/`;
-const VIEWS = ["figures", "entities", "sources", "about"];
+const VIEWS = ["figures", "entities", "sources", "stats"];
 const PAGE_SIZES = [50, 100, 250, 500];
 const DEFAULT_SORT = { col: "fy", dir: "desc" };
 const DEFAULT_ENTITY_SORT = { col: "sum", dir: "desc" };
@@ -157,7 +157,9 @@ const SOURCE_SORTS = ["agency", "title", "type", "fy", "pages", "bytes", "figure
 
 function readState() {
   const p = new URLSearchParams(location.search);
-  state.view = VIEWS.includes(p.get("view")) ? p.get("view") : "figures";
+  // view=about is the old name of the Stats tab.
+  const view = p.get("view") === "about" ? "stats" : p.get("view");
+  state.view = VIEWS.includes(view) ? view : "figures";
   state.filters = {
     ...EMPTY_FILTERS,
     q: p.get("q") || "",
@@ -287,6 +289,7 @@ async function boot() {
     $("loading-banner").hidden = true;
     $("workspace").hidden = false;
     renderStats();
+    if (new URLSearchParams(location.search).get("view") === "about") writeUrl();
     renderAll();
   } catch (err) {
     console.error(err);
@@ -346,7 +349,7 @@ function updateTitle() {
   else if (state.view === "entities" && state.entity) t = `${state.entity} · ${base}`;
   else if (state.view === "entities") t = `Jurisdictions · ${base}`;
   else if (state.view === "sources") t = `Sources · ${base}`;
-  else if (state.view === "about") t = `About · ${base}`;
+  else if (state.view === "stats") t = `Stats · ${base}`;
   document.title = t;
 }
 
@@ -420,7 +423,7 @@ function renderToolbar() {
   }
   toolbarView = key;
   bar.replaceChildren();
-  bar.hidden = key === "about" || key === "dossier";
+  bar.hidden = key === "stats" || key === "dossier";
   if (key === "figures") {
     const f = state.filters;
     const years = model.years;
@@ -513,7 +516,7 @@ function renderContent() {
     if (state.entity) renderEntityDossier(content);
     else renderEntities(content);
   } else if (state.view === "sources") renderSources(content);
-  else renderAbout(content);
+  else renderStatsView(content);
 }
 
 function currentFigures() {
@@ -654,14 +657,22 @@ function showFiltered(filters) {
   scrollContentTop();
 }
 
-// A jurisdiction's name: shows only its figures. From the figure panel the
-// figure stays open beside them.
+// A jurisdiction's name: shows only its figures, and once they are showing,
+// opens its page. From the figure panel the figure stays open beside either.
 function entityFilterLink(name, keepFigure = false) {
+  const filtered = () => state.view === "figures" && state.filters.entity === name;
   return el("a", {
-    class: "entity-link", href: hrefWith({ entity: name }), text: name,
+    class: "entity-link", href: filtered() ? entityHref(name) : hrefWith({ entity: name }), text: name,
     onclick: (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
+      if (filtered()) {
+        if (!keepFigure) return openEntity(name);
+        state.view = "entities";
+        state.entity = name;
+        update({ push: true });
+        return scrollContentTop();
+      }
       if (!keepFigure) return showFiltered({ entity: name });
       state.view = "figures";
       state.filters = { ...EMPTY_FILTERS, entity: name };
@@ -958,42 +969,41 @@ function renderSources(content) {
   );
 }
 
-// ------------------------------------------------------------ ABOUT
+// ------------------------------------------------------------ STATS
 
-let aboutData = null;
+let statsData = null;
 
-function renderAbout(content) {
-  const cov = coverageByYear(model.figures);
+function renderStatsView(content) {
+  const figs = model.figures;
   const firstFy = model.years[0];
   const lastFy = model.years[model.years.length - 1];
-  const tiles = el("div", { class: "tiles" },
-    tile("Printed figures", fmtInt(model.figures.length)),
-    tile("Data rows", fmtInt(model.rows.length)),
-    tile("Jurisdictions", fmtInt(model.entities.length)),
-    tile("Source publications", fmtInt(model.sources.length)),
-    tile("Fiscal years", fmtInt(model.years.length), `${fmtFy(firstFy)} to ${fmtFy(lastFy)}`),
-  );
-  const share = (test) => `${Math.round((100 * model.figures.filter(test).length) / model.figures.length)}%`;
-  const wrap = el("div", { class: "about" },
-    el("h2", { text: "About" }),
-    el("p", {}, "Impact fee collections California agencies reported, from the ",
-      el("a", { href: `${GITHUB_ROOT}tree/${githubRef()}`, target: "_blank", rel: "noopener", text: "mfa-data" }),
-      " release. Each figure opens on its outlined page in the original report."),
-    tiles,
+  const basisStated = (f) => !["", "Not stated"].includes(basisLabel(f.primary.accounting_basis_source_read));
+  content.append(el("div", { class: "stats-view" },
+    el("div", { class: "tiles" },
+      tile("Printed figures", fmtInt(figs.length)),
+      tile("Data rows", fmtInt(model.rows.length)),
+      tile("Jurisdictions", fmtInt(model.entities.length)),
+      tile("Source publications", fmtInt(model.sources.length)),
+      tile("Fiscal years", fmtInt(model.years.length), `${fmtFy(firstFy)} to ${fmtFy(lastFy)}`)),
     el("h3", { class: "section-label", text: "Figures by fiscal year" }),
-    coverageChart(cov),
-    el("h3", { class: "section-label", text: "Notes" }),
-    el("ul", { class: "rules" },
-      el("li", { text: "Sums add primary rows only." }),
-      el("li", { text: `${share((f) => scopeKey(f.primary.land_use_scope) === "not_split")} of figures are one amount for all land uses.` }),
-      el("li", { text: `Reports state an accounting basis for ${share((f) => !["", "Not stated"].includes(basisLabel(f.primary.accounting_basis_source_read)))} of figures.` }),
-      el("li", { text: "Quimby in lieu fees, §66013 capacity charges and development agreement fees appear where agencies reported them." }),
-    ),
-    el("div", { id: "about-release" }, el("p", { class: "muted", text: "Loading…" })),
-  );
-  content.append(wrap);
-  loadAbout().then(() => fillAbout()).catch((err) => {
-    const slot = $("about-release");
+    coverageChart(coverageByYear(figs)),
+    el("div", { class: "stats-cols" },
+      el("div", { class: "stats-col" },
+        statsBlock("Fee category", breakdownTable("Category", figs, (f) => f.category, (v) => humanize(v), (v) => ({ cat: v || NONE })))),
+      el("div", { class: "stats-col" },
+        statsBlock("Jurisdiction type", breakdownTable("Type", figs, (f) => f.primary.entity_type, entityTypeLabel, (v) => ({ type: v || NONE }))),
+        statsBlock("Land use", breakdownTable("Land use", figs, (f) => scopeKey(f.primary.land_use_scope), scopeLabel, (v) => ({ scope: v || NONE }))),
+        statsBlock("Figures", shareTable(figs, [
+          ["Arithmetic check", (f) => f.arith, { arith: "yes" }],
+          ["Accounting basis stated", basisStated],
+          ["Restated", (f) => f.restatements.length > 0],
+          ["Printed in thousands", (f) => f.thousands],
+          ["Printed zero", (f) => f.zero],
+        ])))),
+    el("div", { id: "stats-release" }, el("p", { class: "muted", text: "Loading…" })),
+  ));
+  loadStats().then(() => fillStats()).catch((err) => {
+    const slot = $("stats-release");
     if (slot) slot.replaceChildren(el("p", { class: "muted", text: `Failed to load: ${err.message}` }));
   });
 }
@@ -1005,61 +1015,114 @@ function tile(label, value, sub = "") {
     sub ? el("div", { class: "tile-sub", text: sub }) : null);
 }
 
-async function loadAbout() {
-  if (aboutData) return aboutData;
+function statsBlock(title, table) {
+  return el("section", { class: "stats-block" },
+    el("h3", { class: "section-label", text: title }),
+    el("div", { class: "table-scroll" }, table));
+}
+
+function statsTable(heads, rows) {
+  return el("table", { class: "grid" },
+    el("thead", {}, el("tr", {}, heads.map((h, i) => el("th", { scope: "col", class: i ? "num" : "", text: h })))),
+    el("tbody", {}, rows));
+}
+
+// A name in a stats table that lists the figures it counts.
+function filterLink(text, filters) {
+  return el("a", {
+    href: hrefWith(filters), text,
+    onclick: (ev) => { ev.preventDefault(); showFiltered(filters); },
+  });
+}
+
+// Figures, jurisdictions and sum for each value of key, most figures first.
+function breakdownTable(head, figs, key, label, filters) {
+  const groups = new Map();
+  for (const f of figs) {
+    const k = key(f) || "";
+    let g = groups.get(k);
+    if (!g) groups.set(k, (g = { k, figures: 0, entities: new Set(), sum: 0 }));
+    g.figures += 1;
+    g.entities.add(f.entity);
+    if (Number.isFinite(f.value)) g.sum += f.value;
+  }
+  const name = (k) => (k ? label(k) : "Not recorded");
+  const rows = [...groups.values()]
+    .sort((a, b) => b.figures - a.figures || name(a.k).localeCompare(name(b.k)))
+    .map((g) => el("tr", {},
+      el("td", {}, filterLink(name(g.k), filters(g.k))),
+      el("td", { class: "num", text: fmtInt(g.figures) }),
+      el("td", { class: "num", text: fmtInt(g.entities.size) }),
+      el("td", { class: "num", text: fmtSum(g.sum) })));
+  return statsTable([head, "Figures", "Jurisdictions", "Sum"], rows);
+}
+
+function shareTable(figs, tests) {
+  return statsTable(["", "Figures", "Share"], tests.map(([text, test, filters]) => {
+    const n = figs.filter(test).length;
+    return el("tr", {},
+      el("td", {}, filters ? filterLink(text, filters) : text),
+      el("td", { class: "num", text: fmtInt(n) }),
+      el("td", { class: "num", text: `${Math.round((100 * n) / figs.length)}%` }));
+  }));
+}
+
+const DATA_TABLES = ["reported-fee-collections", "residential-cash-receipts", "capital-spending", "residential-funded-shares"];
+
+async function loadStats() {
+  if (statsData) return statsData;
   const [cohort, refusals, manifest] = await Promise.all([
     fetchJson("data/cohort-accounting.json"),
     fetchText("data/refusals-by-reason.csv").then((t) => parseCsvObjects(t).rows),
     ensureManifest(),
   ]);
-  const empties = await Promise.all(["residential-cash-receipts", "capital-spending", "residential-funded-shares"].map(async (name) => {
-    const t = await fetchText(`data/${name}.csv`);
-    return { name, rows: parseCsvObjects(t).rows.length };
+  const tables = await Promise.all(DATA_TABLES.map(async (name) => {
+    const rows = name === "reported-fee-collections" ? model.rows.length : parseCsvObjects(await fetchText(`data/${name}.csv`)).rows.length;
+    return { name, rows };
   }));
-  aboutData = { cohort, refusals, manifest, empties };
-  return aboutData;
+  statsData = { cohort, refusals, manifest, tables };
+  return statsData;
 }
 
-function fillAbout() {
-  const slot = $("about-release");
-  if (!slot || !aboutData) return;
-  const { cohort, refusals, manifest, empties } = aboutData;
+function fillStats() {
+  const slot = $("stats-release");
+  if (!slot || !statsData) return;
+  const { cohort, refusals, manifest, tables } = statsData;
   const doc = (path, label) => el("a", { href: blobUrl(path), target: "_blank", rel: "noopener", text: label });
   const kv = (k, v) => el("tr", {}, el("th", { scope: "row", text: k }), el("td", { class: "num", text: v }));
-  slot.replaceChildren(
-    el("h3", { class: "section-label", text: "Review" }),
-    el("table", { class: "grid kv" }, el("tbody", {},
-      kv("Cohort reviewed", fmtInt(cohort.reviewed)),
-      kv("Cohort published", fmtInt(cohort.published)),
-      kv("Refused", fmtInt(cohort.refused)),
-      kv("Undecided", fmtInt(cohort.remaining_undecided)),
-      kv("Statewide lane", fmtInt(cohort.statewide_lane_rows_in_data_file)),
-      kv("Total rows", fmtInt(cohort.total_rows_in_data_file)))),
-    el("h3", { class: "section-label", text: "Refusals" }),
-    el("div", { class: "table-scroll" }, el("table", { class: "grid" },
-      el("thead", {}, el("tr", {}, ["Reason", "Rows", "Agencies", "Documents"].map((h, i) => el("th", { scope: "col", class: i ? "num" : "", text: h })))),
-      el("tbody", {}, refusals.map((r) => el("tr", {},
+  const links = (k, ...items) => el("tr", {}, el("th", { scope: "row", text: k }),
+    el("td", {}, items.flatMap((a, i) => (i ? [" · ", a] : [a]))));
+  slot.replaceChildren(el("div", { class: "stats-cols" },
+    el("div", { class: "stats-col" },
+      el("section", { class: "stats-block" },
+        el("h3", { class: "section-label", text: "Review" }),
+        el("table", { class: "grid kv" }, el("tbody", {},
+          kv("Cohort reviewed", fmtInt(cohort.reviewed)),
+          kv("Cohort published", fmtInt(cohort.published)),
+          kv("Refused", fmtInt(cohort.refused)),
+          kv("Undecided", fmtInt(cohort.remaining_undecided)),
+          kv("Statewide lane", fmtInt(cohort.statewide_lane_rows_in_data_file)),
+          kv("Total rows", fmtInt(cohort.total_rows_in_data_file))))),
+      statsBlock("Tables", statsTable(["File", "Rows"], tables.map((t) => el("tr", {},
+        el("td", {}, doc(`data/${t.name}.csv`, `${t.name}.csv`)),
+        el("td", { class: "num", text: fmtInt(t.rows) }))))),
+      el("section", { class: "stats-block" },
+        el("h3", { class: "section-label", text: "Release" }),
+        el("table", { class: "grid kv" }, el("tbody", {},
+          kv("Release", manifest.release || ""),
+          kv("Built (UTC)", manifest.built_utc || ""),
+          kv("Files, each with a SHA-256", fmtInt(manifest.file_count || manifest.files.size)),
+          kv("Total size", fmtBytes(manifest.total_bytes)),
+          links("Downloads", doc("data/reported-fee-collections.csv", "CSV"), doc("data/reported-fee-collections.json", "JSON"),
+            doc("data/mfa-reviewed-collections.xlsx", "spreadsheet"), doc("manifest.json", "manifest")),
+          links("Method", doc("docs/methodology.md", "methodology"), doc("docs/review-process.md", "review process"),
+            doc("docs/data-dictionary.md", "data dictionary"), doc("docs/coverage.md", "coverage and gaps")))))),
+    el("div", { class: "stats-col" },
+      statsBlock("Refusals", statsTable(["Reason", "Rows", "Agencies", "Documents"], refusals.map((r) => el("tr", {},
         el("td", { text: humanize(r.refusal_reason_code) }),
         el("td", { class: "num", text: fmtInt(Number(r.rows_refused)) }),
         el("td", { class: "num", text: fmtInt(Number(r.agencies_affected)) }),
-        el("td", { class: "num", text: fmtInt(Number(r.source_documents_affected)) })))))),
-    el("h3", { class: "section-label", text: "Empty tables" }),
-    el("ul", { class: "rules" }, empties.map((t) => el("li", {},
-      doc(`data/${t.name}.csv`, `${t.name}.csv`),
-      t.rows ? ` · ${fmtInt(t.rows)} rows` : " · no rows"))),
-    el("h3", { class: "section-label", text: "Release files" }),
-    el("table", { class: "grid kv" }, el("tbody", {},
-      kv("Release", manifest.release || ""),
-      kv("Built (UTC)", manifest.built_utc || ""),
-      kv("Files, each with a SHA-256", fmtInt(manifest.file_count || manifest.files.size)),
-      kv("Total size", fmtBytes(manifest.total_bytes)))),
-    el("p", {},
-      "Downloads: ", doc("data/reported-fee-collections.csv", "CSV"), " · ", doc("data/reported-fee-collections.json", "JSON"), " · ",
-      doc("data/mfa-reviewed-collections.xlsx", "spreadsheet"), " · ", doc("manifest.json", "manifest")),
-    el("p", {},
-      "Method: ", doc("docs/methodology.md", "methodology"), " · ", doc("docs/review-process.md", "review process"), " · ",
-      doc("docs/data-dictionary.md", "data dictionary"), " · ", doc("docs/coverage.md", "coverage and gaps")),
-  );
+        el("td", { class: "num", text: fmtInt(Number(r.source_documents_affected)) }))))))));
 }
 
 // Single series, so no legend: the heading names it. Bars carry the theme's

@@ -192,6 +192,11 @@ try {
   assert.deepEqual([...listed], [named]);
   const expected = primary.filter((r) => r.receiving_entity === named).length;
   assert.equal((await page.locator(".result-bar .count strong").innerText()).replace(/,/g, ""), String(expected));
+  // Clicked again, it opens the jurisdiction's page.
+  await page.locator(".figures-grid tbody tr .col-entity a").first().click();
+  await page.waitForSelector(".matrix");
+  assert.equal(await page.locator(".dossier-head h2").innerText(), named);
+  assert.match(page.url(), /view=entities/);
 
   // Jurisdiction dossier: matrix totals are primary sums per year
   const entity = "City of Brentwood";
@@ -215,12 +220,19 @@ try {
     await shot(page, "06-source-range");
   }
 
-  // About: one bar per fiscal year
+  // Stats: one bar per fiscal year; a category row lists its figures
   await page.goto(`${base}&view=about`);
   await page.waitForSelector(".chart .bar");
+  assert.match(page.url(), /view=stats/, "the old About link opens Stats");
+  assert.equal(await page.locator(".view-tab.active").innerText(), "Stats");
   assert.equal(await page.locator(".chart .bar").count(), new Set(primary.map((r) => r.fiscal_year)).size);
-  await page.waitForSelector("#about-release table");
-  await shot(page, "07-about");
+  await page.waitForSelector("#stats-release table");
+  await shot(page, "07-stats");
+  const cat = page.locator(".stats-block").first().locator("tbody tr").first();
+  const catCount = (await cat.locator("td").nth(1).innerText()).replace(/,/g, "");
+  await cat.locator("a").click();
+  await page.waitForSelector(".filter-tag");
+  assert.equal((await page.locator(".result-bar .count strong").innerText()).replace(/,/g, ""), catCount);
 
   // Dark theme and a phone-width layout
   const dark = await newPage({ width: 1280, height: 800 }, () => localStorage.setItem("amyc-theme", "cypress"));

@@ -23,10 +23,10 @@ so GitHub Pages can issue and renew the custom-domain certificate.
 
 The release claims that every figure was read from the original report, outlined on its page, checked against the report's own arithmetic and reviewed twice. The site lets a reader check that claim one figure at a time:
 
-- **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked.
+- **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. A jurisdiction's name filters the table to it; clicked again, it opens the jurisdiction's page. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked.
 - **Jurisdictions.** Each agency gets a matrix of fee programs by fiscal year. Every cell opens its evidence, and a program year with no figure stays empty.
 - **Sources.** Each original report can be opened in the viewer, with every published figure in it listed and boxed.
-- **About.** Coverage by fiscal year, the cohort accounting, refusals by reason, the empty stronger tables, and links to the method documents.
+- **Stats.** Figures by fiscal year, fee category, jurisdiction type and land use, each linking to the figures it counts; the cohort accounting, refusals by reason, row counts for each data table, and links to the downloads and method documents.
 
 Every view is in the URL, so any figure, filter or page is a link. **Cite** copies a citation with a link pinned to the release commit.
 
@@ -51,7 +51,7 @@ URL parameters:
 |---|---|
 | `ref=<sha or branch>` | read that release commit instead of the current `main` |
 | `data=../` | read from a same-origin path instead of GitHub (local development) |
-| `view` | `figures` (default), `entities`, `sources`, `about` |
+| `view` | `figures` (default), `entities`, `sources`, `stats` (`about` still opens it) |
 | `f=<figure_group_id>` | open that figure's evidence; `tab=original&pg=N` for the original report |
 | `doc=<source_id>` | open that report |
 | `q`, `type`, `county`, `cat`, `scope`, `from`, `to`, `arith`, `entity`, `source`, `sort`, `page`, `size` | figures filters |
