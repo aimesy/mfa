@@ -1255,10 +1255,10 @@ function openFigure(id, { list, tab = "outlined", push = true } = {}) {
   update({ push });
 }
 
-function openDoc(sourceId) {
+function openDoc(sourceId, page = null) {
   state.doc = sourceId;
   state.figure = "";
-  state.pg = null;
+  state.pg = page;
   update({ push: true });
 }
 
@@ -1411,6 +1411,7 @@ async function showFigureEvidence(fig) {
       outlineInFile: true,
       mismatchNote: "Recorded rectangle doesn't match the drawn outline. No marker added.",
       boxesForPage: () => [figureBox(fig, true)],
+      goToDocument: () => openDoc(p.source_id, state.pg || fig.page),
     });
   } else {
     const m = meta(p.source_pdf);
@@ -1424,6 +1425,7 @@ async function showFigureEvidence(fig) {
       outlineInFile: false,
       mismatchNote: "No box: recorded rectangle doesn't match the outline. See Outlined page.",
       boxesForPage: (n) => figuresOnPage(p.source_pdf, n).map((f) => figureBox(f, f.id === fig.id)),
+      goToDocument: () => openDoc(p.source_id, state.pg || fig.page),
     });
   }
 }

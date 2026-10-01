@@ -144,6 +144,13 @@ try {
   assert.match(await page.locator(".pv-page").innerText(), /^Page \d+ of \d+$/);
   await page.waitForTimeout(400);
   await shot(page, "03-evidence-original");
+  // Go to document opens the whole report at the page being read.
+  const onPage = await page.locator(".pv-page").innerText();
+  await page.locator(".pv-toolbar button", { hasText: "Go to document" }).click();
+  await page.waitForFunction(() => /[?&]doc=/.test(location.search) && !/[?&]f=/.test(location.search));
+  await page.waitForSelector("#panel .details table.rows");
+  await page.waitForFunction((p) => document.querySelector(".pv-page")?.innerText === p, onPage);
+  assert.equal(await page.locator(".pv-toolbar button", { hasText: "Go to document" }).isVisible(), false, "no document button on the document itself");
   await page.keyboard.press("Escape");
   await page.waitForSelector("#panel", { state: "hidden" });
 

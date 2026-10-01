@@ -579,6 +579,7 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 }
 .pv-toolbar .sep { width: 1px; height: 18px; background: var(--rule); margin: 0 0.15rem; }
 .pv-btn { padding: 0.14rem 0.45rem; min-width: 26px; justify-content: center; }
+.pv-btn .sym { font-family: "Noto Emoji"; font-variant-emoji: text; font-size: 0.8rem; line-height: 1; margin-right: 0.3rem; }
 .pv-pager { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: auto; }
 .pv-page { font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-2); white-space: nowrap; }
 .pv-scroll {

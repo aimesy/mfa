@@ -23,9 +23,9 @@ so GitHub Pages can issue and renew the custom-domain certificate.
 
 The release claims that every figure was read from the original report, outlined on its page, checked against the report's own arithmetic and reviewed twice. The site lets a reader check that claim one figure at a time:
 
-- **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. A jurisdiction's name filters the table to it; clicked again, it opens the jurisdiction's page. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked.
 - **Jurisdictions.** Each agency gets a matrix of fee programs by fiscal year. Every cell opens its evidence, and a program year with no figure stays empty.
 - **Sources.** Each original report can be opened in the viewer, with every published figure in it listed and boxed.
+- **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. A jurisdiction's name filters the table to it; clicked again, it opens the jurisdiction's page. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked; **Go to document** opens that report with every figure published from it listed.
 - **Stats.** Figures by fiscal year, fee category, jurisdiction type and land use, each linking to the figures it counts; the cohort accounting, refusals by reason, row counts for each data table, and links to the downloads and method documents.
 
 Every view is in the URL, so any figure, filter or page is a link. **Cite** copies a citation with a link pinned to the release commit.
