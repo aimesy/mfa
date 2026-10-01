@@ -8,7 +8,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCsv, parseCsvObjects, toCsv } from "../lib/csv.js";
-import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms, scopeLabel, scopeKey, scopeSymbol, basisLabel, grossNetLabel } from "../lib/model.js";
+import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms, scopeLabel, scopeKey, scopeSymbol, basisLabel, grossNetLabel, feeLabel, feeKey } from "../lib/model.js";
+import { FEE_LINKS } from "../lib/fee-links.js";
 import { readArithmetic } from "../lib/arith.js";
 import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.js";
 import { readPageLines, figureColumn, namesFromPage } from "../lib/pagelines.js";
@@ -66,8 +67,33 @@ import { readPageLines, figureColumn, namesFromPage } from "../lib/pagelines.js"
 
   const mx = entityMatrix(m.entityByName.get("City of Example"));
   assert.deepEqual(mx.years, ["2022-23", "2024-25"]);
-  assert.equal(mx.groups[0].programs[0].cells.get("2022-23").length, 1);
+  assert.equal(mx.groups[0].fees[0].cells.get("2022-23").length, 1);
   assert.deepEqual(mx.totals.map((t) => t.sum), [100.5, 0]);
+}
+
+// Fees: one fee per fee program unless a link joins names; labels carry every fund number.
+{
+  assert.equal(feeLabel(["Road Development Fund (Fund 582)", "Road Development Fund (Fund 1582)"]), "Road Development Fund (Fund 582/1582)");
+  assert.equal(feeLabel(["Storm Impact Fee (Fund 420)", "Storm Drain Impact Fee (Fund 420)", "Storm Drain Development Impact Fee (Fund 410)"]), "Storm Drain Development Impact Fee (Fund 420/410)");
+  assert.equal(feeLabel(["Fire Impact Fund (1061)", "Fire Impact Fund (106)"]), "Fire Impact Fund (1061/106)");
+  assert.equal(feeLabel(["Supplemental Water Supply (Fund 15)", "Supplemental Water Supply (Fund 015)"]), "Supplemental Water Supply (Fund 015)", "a leading zero is the same number");
+  assert.equal(feeLabel(["Water Facility", "Water"]), "Water");
+  assert.equal(feeLabel(["A Fee Fund 310-314", "A Fee Fund 310-314 [2022-23]", "A Fee Fund 310-314"], "A Fee Fund 310-314"), "A Fee Fund 310-314");
+  const row = (id, program, fy, value) => ({
+    record_id: id, figure_group_id: id, is_primary_in_figure_group: "true", receiving_entity: "City of Example", fee_program: program,
+    fiscal_year: fy, value_usd: value, physical_pdf_page: "1", source_id: `s-${fy}`, outline_rect_pdf_points: "[1, 2, 3, 4]",
+  });
+  const rows = [row("a", "Water Facility", "2014-15", "10"), row("b", "Water", "2016-17", "20"), row("c", "Sewer", "2016-17", "5")];
+  const m = buildModel(rows, [], [["City of Example", "Water Facility", "Water", "balance", "$1"]]);
+  assert.equal(m.fees.length, 2);
+  const water = m.feeByKey.get(feeKey("City of Example", "Water Facility"));
+  assert.equal(water, m.feeByKey.get(feeKey("City of Example", "Water")), "either name finds the fee");
+  assert.deepEqual(water.names, ["Water Facility", "Water"]);
+  assert.equal(water.sum, 30);
+  assert.equal(water.joins.length, 1);
+  assert.equal(m.entityByName.get("City of Example").fees.size, 2);
+  const bad = buildModel(rows, [], [["City of Example", "Water", "Sewer", "wording", ""], ["City of Example", "Gone", "Water", "wording", ""]]);
+  assert.equal(bad.feeProblems.length, 2, "a link to a missing name, and two names in one year, are reported");
 }
 
 // Formatting
@@ -244,7 +270,14 @@ if (existsSync(releaseCsv)) {
   assert.ok(m.figures.every((f) => f.primary._rects && f.page), "every figure has an outline and a page");
   const unknownSources = m.figures.filter((f) => !m.sourceById.has(f.sourceId));
   assert.equal(unknownSources.length, 0, "every figure's source is in sources/index.csv");
-  console.log(`release: ${fees.rows.length} rows, ${m.figures.length} figures, ${m.entities.length} jurisdictions, ${m.sources.length} sources`);
+  assert.deepEqual(m.feeProblems, [], "every fee link names programs in the release and joins no two names printed in one year");
+  const links = new Set(FEE_LINKS.map(([e, a, b]) => `${e}|${a}|${b}`));
+  assert.equal(links.size, FEE_LINKS.length, "no link is listed twice");
+  const road = m.feeByKey.get(feeKey("City of Woodland", "Road Development Fund (Fund 582)"));
+  assert.equal(road.label, "Road Development Fund (Fund 582/1582)");
+  assert.ok(m.feeByKey.get(feeKey("City of Woodland", "Water Development Fund (Fund 584)")) !== m.feeByKey.get(feeKey("City of Woodland", "Water Development Fund (Fund 580)")), "Fund 584 is its own fee");
+  assert.equal(m.fees.length, new Set(m.figures.map((f) => feeKey(f.entity, f.program))).size - FEE_LINKS.length, "each link joins two fees into one");
+  console.log(`release: ${fees.rows.length} rows, ${m.figures.length} figures, ${m.entities.length} jurisdictions, ${m.fees.length} fees, ${m.sources.length} sources`);
 }
 
 console.log("model tests passed");

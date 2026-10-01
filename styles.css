@@ -314,7 +314,7 @@ th.sort-asc .col-label::after { content: " ▴"; color: var(--ink); }
 th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
 .grid tbody tr { background: var(--paper); }
 .grid tbody tr:nth-child(even) { background: var(--plain-soft); }
-.grid tbody tr[onclick], .figures-grid tbody tr, .entities-grid tbody tr, .sources-grid tbody tr { cursor: pointer; }
+.grid tbody tr[onclick], .figures-grid tbody tr, .entities-grid tbody tr, .fees-grid tbody tr, .sources-grid tbody tr { cursor: pointer; }
 .grid tbody tr:hover { background: var(--row-hover); }
 .grid tbody tr.selected-row { background: var(--warn-bg); box-shadow: inset 3px 0 0 var(--ink); }
 .empty-row td { padding: 1.2rem 0.85rem; color: var(--ink-3); cursor: default; }
@@ -331,8 +331,19 @@ th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
 .figures-grid .col-evidence { width: 82px; }
 .figures-grid td { overflow-wrap: anywhere; }
 .figures-grid td.col-label { color: var(--ink-2); }
-.entities-grid, .sources-grid { width: 100%; min-width: 900px; }
-.entities-grid .col-years { color: var(--ink-2); max-width: 320px; }
+.entities-grid, .fees-grid, .sources-grid { width: 100%; min-width: 900px; }
+.entities-grid .col-years, .fees-grid .col-years { color: var(--ink-2); max-width: 320px; }
+.fees-grid .col-entity { width: 18%; }
+.fees-grid .col-fee { min-width: 260px; }
+.fee-chart { padding: 0 0.85rem; }
+.fee-history { padding: 0 0.85rem 2rem; }
+.fee-grid { width: auto; min-width: 640px; margin-top: 0.6rem; }
+.fee-grid tbody tr[data-id] { cursor: pointer; }
+.fee-grid .col-fy { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fee-grid .col-printed { max-width: 420px; }
+.fee-grid .col-printed.same { color: var(--ink-4); }
+.fee-grid .fee-missing td { color: var(--ink-4); }
+.fee-grid .col-joined { font-size: 0.72rem; color: var(--ink-2); white-space: nowrap; }
 .sources-grid .col-title { min-width: 260px; }
 .sources-grid.compact { min-width: 720px; }
 

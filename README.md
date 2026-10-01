@@ -23,7 +23,8 @@ so GitHub Pages can issue and renew the custom-domain certificate.
 
 The release claims that every figure was read from the original report, outlined on its page, checked against the report's own arithmetic and reviewed twice. The site lets a reader check that claim one figure at a time:
 
-- **Jurisdictions.** Each agency gets a matrix of fee programs by fiscal year. Every cell opens its evidence, and a program year with no figure stays empty.
+- **Jurisdictions.** Each agency gets a matrix of its fees by fiscal year. Every cell opens its evidence, and a program year with no figure stays empty.
+- **Fees.** Each fee's history, year by year: what was collected, the name the report printed, and the page. An agency that renamed or renumbered a fund keeps one fee, labelled with every number it carried (Woodland's "Road Development Fund (Fund 582/1582)"). Each join is listed in `lib/fee-links.js` with its evidence (the old name's closing balance is the new name's opening balance, the new report reprints the old figures, or the names differ only in wording) and shown on the year the name changed. The release's rows are unchanged.
 - **Sources.** Each original report can be opened in the viewer, with every published figure in it listed and boxed.
 - **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. A jurisdiction's name filters the table to it; clicked again, it opens the jurisdiction's page. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked; **Go to document** opens that report with every figure published from it listed.
 - **Stats.** Figures by fiscal year, fee category, jurisdiction type and land use, each linking to the figures it counts; the cohort accounting, refusals by reason, row counts for each data table, and links to the downloads and method documents.
@@ -51,11 +52,12 @@ URL parameters:
 |---|---|
 | `ref=<sha or branch>` | read that release commit instead of the current `main` |
 | `data=../` | read from a same-origin path instead of GitHub (local development) |
-| `view` | `entities` (default), `sources`, `figures`, `stats` (`about` still opens it) |
+| `view` | `entities` (default), `fees`, `sources`, `figures`, `stats` (`about` still opens it) |
 | `f=<figure_group_id>` | open that figure's evidence; `tab=original&pg=N` for the original report |
 | `doc=<source_id>` | open that report |
 | `q`, `type`, `county`, `cat`, `scope`, `from`, `to`, `arith`, `entity`, `source`, `sort`, `page`, `size` | figures filters |
-| `e=<name>` | open a jurisdiction |
+| `e=<name>` | open a jurisdiction (with `view=fees&fee=<printed name>`, that fee) |
+| `fq`, `fcat`, `ftype`, `fcounty`, `fsort` | fees filters |
 
 ## Run it locally
 

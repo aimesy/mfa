@@ -8,5 +8,6 @@
 - pdf.js 4.10.38 is vendored in `vendor/`. Keep `isEvalSupported: false`.
 - Tag symbols are drawn in black and white from the whole Noto Emoji face in `vendor/noto-emoji/` (Google's unicode-range subsets; a page loads only the ones it uses). Put symbols in a `.sym` span with U+FE0E so they never fall back to a colour emoji font.
 - Sum primary rows only (`is_primary_in_figure_group`). A missing program-year is missing, never zero.
+- `lib/fee-links.js` joins fee program names into one fee for display only. Add a link only with evidence from the reports (matching closing and opening balances, a reprint of the old figures, or a difference in wording alone) and record it; `tests/model.test.mjs` fails on a link the release no longer matches.
 - Draw a box from `outline_rect_pdf_points` only after it is confirmed against the red outline in that figure's evidence file; otherwise draw none and say why.
 - Run `node check-static.mjs` and `node tests/model.test.mjs` before pushing; `node tests/smoke.mjs` when the panel, loading or layout changes.

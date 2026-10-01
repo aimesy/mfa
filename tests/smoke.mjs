@@ -17,6 +17,7 @@ import path from "node:path";
 import { serve, VIEWER_ROOT, DATA_ROOT } from "./serve.mjs";
 import { parseCsvObjects } from "../lib/csv.js";
 import { scopeKey } from "../lib/model.js";
+import { FEE_LINKS } from "../lib/fee-links.js";
 
 const root = DATA_ROOT;
 const shots = process.env.SCREENSHOT_DIR || "";
@@ -216,6 +217,34 @@ try {
   await page.locator(".mx-cell").first().click();
   await page.waitForSelector(".pv-box.current", { state: "attached" });
   await shot(page, "05-dossier");
+
+  // Fees: one row per fee; a renumbered fund is one fee, its history year by year
+  await page.goto(`${base}&view=fees`);
+  await page.waitForSelector(".fees-grid tbody tr");
+  const feeCount = new Set(primary.map((r) => `${r.receiving_entity}|${r.fee_program}`)).size - FEE_LINKS.length;
+  assert.equal((await page.locator(".result-bar strong").first().innerText()).replace(/,/g, ""), String(feeCount));
+  await page.fill("#fq", "woodland road development");
+  await page.waitForFunction(() => document.querySelectorAll(".fees-grid tbody tr").length === 1);
+  await page.locator(".fees-grid tbody tr .col-fee a").click();
+  await page.waitForSelector(".fee-grid");
+  assert.equal(await page.locator(".dossier-head h2").innerText(), "Road Development Fund (Fund 582/1582)");
+  const printed = await page.locator(".fee-grid .col-printed:not(.same)").allInnerTexts();
+  assert.deepEqual(printed, ["Road Development Fund (Fund 582)", "Road Development Fund (Fund 1582)"]);
+  assert.match(await page.locator(".fee-grid .col-joined span").innerText(), /^Reprint FY 2018–19 to 2020–21$/);
+  const woodland = primary.filter((r) => r.receiving_entity === "City of Woodland" && /^Road Development Fund/.test(r.fee_program));
+  assert.equal(await page.locator(".fee-grid tbody tr[data-id]").count(), woodland.length);
+  assert.ok(await page.locator(".fee-grid .fee-missing").count() > 0, "a year with no figure is shown as missing");
+  assert.equal(await page.locator(".fee-chart .bar").count(), new Set(woodland.map((r) => r.fiscal_year)).size);
+  await page.locator(".fee-grid tbody tr[data-id] .pdf-btn").last().click();
+  await page.waitForSelector(".pv-box.current", { state: "attached" });
+  await shot(page, "05b-fee");
+  await page.keyboard.press("Escape");
+  // The jurisdiction's matrix shows the fee once, under its joined name.
+  await page.locator(".dossier-meta a").click();
+  await page.waitForSelector(".matrix");
+  const feeRowsShown = await page.locator(".matrix .mx-program a").allInnerTexts();
+  assert.ok(feeRowsShown.includes("Road Development Fund (Fund 582/1582)"));
+  assert.ok(!feeRowsShown.some((n) => n.startsWith("Road Development Fund (Fund 582)") || n.startsWith("Road Development Fund (Fund 1582)")));
 
   // Sources: a large report opens by byte range, with the page's figures boxed
   const big = sources
