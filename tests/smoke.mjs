@@ -91,7 +91,7 @@ async function openFigureById(page, id) {
 try {
   // Figures table
   const page = await newPage();
-  await page.goto(base);
+  await page.goto(`${base}&view=figures`);
   await page.waitForSelector(".figures-grid tbody tr");
   const count = await page.locator(".result-bar .count strong").innerText();
   assert.equal(count.replace(/,/g, ""), String(new Set(rows.map((r) => r.figure_group_id)).size), "table counts printed figures");
@@ -189,7 +189,7 @@ try {
   }
 
   // A jurisdiction's name filters the table to that jurisdiction.
-  await page.goto(base);
+  await page.goto(`${base}&view=figures`);
   await page.waitForSelector(".figures-grid tbody tr .col-entity a");
   const named = await page.locator(".figures-grid tbody tr .col-entity a").first().innerText();
   await page.locator(".figures-grid tbody tr .col-entity a").first().click();
@@ -203,7 +203,8 @@ try {
   await page.locator(".figures-grid tbody tr .col-entity a").first().click();
   await page.waitForSelector(".matrix");
   assert.equal(await page.locator(".dossier-head h2").innerText(), named);
-  assert.match(page.url(), /view=entities/);
+  assert.match(page.url(), /[?&]e=/);
+  assert.doesNotMatch(page.url(), /view=/, "Jurisdictions is the default view");
 
   // Jurisdiction dossier: matrix totals are primary sums per year
   const entity = "City of Brentwood";
@@ -243,13 +244,13 @@ try {
 
   // Dark theme and a phone-width layout
   const dark = await newPage({ width: 1280, height: 800 }, () => localStorage.setItem("amyc-theme", "cypress"));
-  await dark.goto(`${base}&f=${encodeURIComponent(primary[0].figure_group_id)}`);
+  await dark.goto(`${base}&view=figures&f=${encodeURIComponent(primary[0].figure_group_id)}`);
   await dark.waitForSelector(".pv-box.current", { state: "attached" });
   await dark.waitForTimeout(400);
   await shot(dark, "08-dark");
 
   const phone = await newPage({ width: 390, height: 844 });
-  await phone.goto(base);
+  await phone.goto(`${base}&view=figures`);
   await phone.waitForSelector(".figures-grid tbody tr");
   const overflow = await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 1, `page must not scroll sideways at phone width (overflow ${overflow}px)`);

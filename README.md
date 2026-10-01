@@ -51,7 +51,7 @@ URL parameters:
 |---|---|
 | `ref=<sha or branch>` | read that release commit instead of the current `main` |
 | `data=../` | read from a same-origin path instead of GitHub (local development) |
-| `view` | `figures` (default), `entities`, `sources`, `stats` (`about` still opens it) |
+| `view` | `entities` (default), `sources`, `figures`, `stats` (`about` still opens it) |
 | `f=<figure_group_id>` | open that figure's evidence; `tab=original&pg=N` for the original report |
 | `doc=<source_id>` | open that report |
 | `q`, `type`, `county`, `cat`, `scope`, `from`, `to`, `arith`, `entity`, `source`, `sort`, `page`, `size` | figures filters |

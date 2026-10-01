@@ -28,7 +28,8 @@ const REPO = "aimesy/mfa-data";
 const DEFAULT_BRANCH = "main";
 const RAW_ROOT = `https://raw.githubusercontent.com/${REPO}/`;
 const GITHUB_ROOT = `https://github.com/${REPO}/`;
-const VIEWS = ["figures", "entities", "sources", "stats"];
+const VIEWS = ["entities", "sources", "figures", "stats"];
+const DEFAULT_VIEW = "entities";
 const PAGE_SIZES = [50, 100, 250, 500];
 const DEFAULT_SORT = { col: "fy", dir: "desc" };
 const DEFAULT_ENTITY_SORT = { col: "sum", dir: "desc" };
@@ -96,10 +97,12 @@ function hrefWith(params) {
   const p = new URLSearchParams();
   if (cfg.local) p.set("data", cfg.param.data);
   else if (cfg.pinned) p.set("ref", cfg.ref);
-  for (const [k, v] of Object.entries(params)) if (v) p.set(k, v);
+  for (const [k, v] of Object.entries(params)) if (v && !(k === "view" && v === DEFAULT_VIEW)) p.set(k, v);
   const qs = p.toString();
   return `${location.pathname}${qs ? `?${qs}` : ""}`;
 }
+
+const figuresHref = (params) => hrefWith({ view: "figures", ...params });
 
 function officialUrl(raw, page) {
   const value = String(raw || "").trim();
@@ -116,7 +119,7 @@ function officialUrl(raw, page) {
 // ============================================================ STATE
 
 const state = {
-  view: "figures",
+  view: DEFAULT_VIEW,
   filters: { ...EMPTY_FILTERS },
   sort: { ...DEFAULT_SORT },
   page: 1,
@@ -159,7 +162,7 @@ function readState() {
   const p = new URLSearchParams(location.search);
   // view=about is the old name of the Stats tab.
   const view = p.get("view") === "about" ? "stats" : p.get("view");
-  state.view = VIEWS.includes(view) ? view : "figures";
+  state.view = VIEWS.includes(view) ? view : DEFAULT_VIEW;
   state.filters = {
     ...EMPTY_FILTERS,
     q: p.get("q") || "",
@@ -194,7 +197,7 @@ function stateParams({ pinRef = false } = {}) {
   const p = new URLSearchParams();
   if (cfg.local) p.set("data", cfg.param.data);
   else if (cfg.pinned || pinRef) p.set("ref", cfg.ref);
-  if (state.view !== "figures") p.set("view", state.view);
+  if (state.view !== DEFAULT_VIEW) p.set("view", state.view);
   const f = state.filters;
   const put = (k, v) => { if (v) p.set(k, v); };
   if (state.view === "figures") {
@@ -337,7 +340,7 @@ function renderTabs() {
     a.classList.toggle("active", active);
     if (active) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
-    a.href = hrefWith({ view: a.dataset.view === "figures" ? "" : a.dataset.view });
+    a.href = hrefWith({ view: a.dataset.view });
   }
 }
 
@@ -347,7 +350,7 @@ function updateTitle() {
   let t = base;
   if (fig) t = `${fig.entity} · ${fmtFy(fig.fy)} · ${fig.program} · ${base}`;
   else if (state.view === "entities" && state.entity) t = `${state.entity} · ${base}`;
-  else if (state.view === "entities") t = `Jurisdictions · ${base}`;
+  else if (state.view === "figures") t = `Figures · ${base}`;
   else if (state.view === "sources") t = `Sources · ${base}`;
   else if (state.view === "stats") t = `Stats · ${base}`;
   document.title = t;
@@ -636,7 +639,7 @@ function badge(text, tip, cls = "") {
 // A badge that lists every figure sharing it.
 function tagLink(filters, tip, cls, ...body) {
   return el("a", {
-    class: `badge tag ${cls}`, href: hrefWith(filters), "data-tip": tip, "aria-label": `${tip}: show all`,
+    class: `badge tag ${cls}`, href: figuresHref(filters), "data-tip": tip, "aria-label": `${tip}: show all`,
     onclick: (ev) => { ev.preventDefault(); ev.stopPropagation(); showFiltered(filters); },
   }, body);
 }
@@ -662,7 +665,7 @@ function showFiltered(filters) {
 function entityFilterLink(name, keepFigure = false) {
   const filtered = () => state.view === "figures" && state.filters.entity === name;
   return el("a", {
-    class: "entity-link", href: filtered() ? entityHref(name) : hrefWith({ entity: name }), text: name,
+    class: "entity-link", href: filtered() ? entityHref(name) : figuresHref({ entity: name }), text: name,
     onclick: (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -835,7 +838,7 @@ function renderEntityDossier(content) {
       [entityTypeLabel(e.type), e.county ? `${e.county} County` : "", `${fmtInt(e.figures.length)} figures`, `${fmtInt(e.programs.size)} fee programs`, `${fmtInt(e.sources.size)} reports`, `FY ${fyRanges(e.yearList)}`]
         .filter(Boolean).map((t) => el("span", { text: t }))),
     el("div", { class: "dossier-actions" },
-      el("a", { class: "btn", href: hrefWith({ entity: e.name }), onclick: (ev) => {
+      el("a", { class: "btn", href: figuresHref({ entity: e.name, sort: "fy.asc" }), onclick: (ev) => {
         ev.preventDefault();
         state.view = "figures";
         state.filters = { ...EMPTY_FILTERS, entity: e.name };
@@ -926,7 +929,7 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
       el("td", { class: "num", text: src._pages ? fmtInt(src._pages) : "" }),
       el("td", { class: "num", text: fmtBytes(src._bytes) }),
       el("td", { class: "num" }, src._figures ? el("a", {
-        href: hrefWith({ source: src.source_id, sort: "page.asc" }),
+        href: figuresHref({ source: src.source_id, sort: "page.asc" }),
         title: "Show these figures in the table",
         onclick: (ev) => { ev.preventDefault(); showSourceFigures(src.source_id); },
         text: fmtInt(src._figures),
@@ -1030,7 +1033,7 @@ function statsTable(heads, rows) {
 // A name in a stats table that lists the figures it counts.
 function filterLink(text, filters) {
   return el("a", {
-    href: hrefWith(filters), text,
+    href: figuresHref(filters), text,
     onclick: (ev) => { ev.preventDefault(); showFiltered(filters); },
   });
 }
