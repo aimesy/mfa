@@ -321,6 +321,7 @@ th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
 
 .figures-grid { width: 100%; min-width: 960px; table-layout: fixed; }
 .figures-grid .col-entity { width: 17%; }
+.figures-grid .col-entity a { color: inherit; }
 .figures-grid .col-fy { width: 66px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .figures-grid .col-program { width: auto; }
 .figures-grid .col-cat { width: 11%; }
@@ -677,7 +678,6 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .grid.arith { width: 100%; margin-top: 0.2rem; }
 .grid.arith thead th { position: static; }
 .grid.arith tr.cap th { font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; color: var(--ink-3); background: var(--paper-2); }
-.grid.arith th.inferred { color: var(--ink-3); font-style: italic; cursor: help; }
 .grid.arith tbody.printed tr.total > * { font-weight: 400; }
 .grid.facts { width: 100%; margin-top: 0.5rem; }
 .grid.facts th { width: 38%; font-weight: 400; color: var(--ink-3); position: static; }

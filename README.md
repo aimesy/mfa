@@ -32,13 +32,14 @@ Every view is in the URL, so any figure, filter or page is a link. **Cite** copi
 
 ## How it differs from tentatives
 
-It follows `aimesy/tentatives` in layout: a chip toolbar, a table plus a detail panel, URL-driven state, CSV export, links to the PDF page, and the same pinned theme. The unit is different, though. A tentative ruling is a document; here the unit is a number at a spot on a page. That changes five things:
+It follows `aimesy/tentatives` in layout: a chip toolbar, a table plus a detail panel, URL-driven state, CSV export, links to the PDF page, and the same pinned theme. The unit is different, though. A tentative ruling is a document; here the unit is a number at a spot on a page. That changes six things:
 
 1. **The detail panel is an evidence viewer.** pdf.js renders the page in the panel and boxes the figure on it, which a browser's own PDF viewer opened at `#page=N` has no way to do.
 2. **Sums add primary rows only.** A printed number recorded at two measure grains is shown once and added once. Each sum covers the figures shown, and coverage differs by agency and year.
 3. **Missing stays empty.** The jurisdiction matrix leaves absent program years empty. A zero appears only where the report prints one.
 4. **Every file is checked.** Each evidence PDF and original report is hashed in the browser (SHA-256) and compared with the hash the release records. Large reports are read by byte range; their hash is checked on request.
 5. **A box is drawn only when it can be trusted.** Before drawing a box from `outline_rect_pdf_points`, the viewer confirms the rectangle sits on the red outline in that figure's own evidence file. Where it does not, it draws nothing and says why. The reviewers' drawn outline is the evidence; the rectangle is metadata about it.
+6. **Arithmetic lines are never named by guessing.** Each line in an arithmetic table takes the name its page prints beside the amount, read from the text layer of the figure's hash-checked evidence file, or failing that the name the note gives. The page is read only in the figure's own column, and only where every amount in the equation is printed there once, under one whole name. An equation with a line that neither names is shown as the note's own text.
 
 ## Data
 

@@ -18,7 +18,8 @@ import {
 } from "./lib/model.js";
 import { readArithmetic } from "./lib/arith.js";
 import { PdfViewer } from "./lib/viewer.js";
-import { checkOutline } from "./lib/evidence.js";
+import { checkOutline, readPageText } from "./lib/evidence.js";
+import { readPageLines, figureColumn, namesFromPage } from "./lib/pagelines.js";
 import { el, svg } from "./lib/dom.js";
 
 // ============================================================ CONFIG
@@ -653,6 +654,23 @@ function showFiltered(filters) {
   scrollContentTop();
 }
 
+// A jurisdiction's name: shows only its figures. From the figure panel the
+// figure stays open beside them.
+function entityFilterLink(name, keepFigure = false) {
+  return el("a", {
+    class: "entity-link", href: hrefWith({ entity: name }), text: name,
+    onclick: (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!keepFigure) return showFiltered({ entity: name });
+      state.view = "figures";
+      state.filters = { ...EMPTY_FILTERS, entity: name };
+      state.page = 1;
+      update({ push: true });
+    },
+  });
+}
+
 function scopeTag(code, named = false) {
   const key = scopeKey(code);
   const sym = scopeSymbol(code);
@@ -694,7 +712,7 @@ function figureRow(fig, list) {
     dataset: { id: fig.id },
     onclick: (e) => { if (!e.target.closest("a,button")) openFigure(fig.id, { list }); },
   },
-    el("td", { class: "col-entity", title: `${fig.entity}\n${entityTypeLabel(p.entity_type)}${p.county ? ` · ${p.county} County` : ""}` }, fig.entity),
+    el("td", { class: "col-entity", title: `${fig.entity}\n${entityTypeLabel(p.entity_type)}${p.county ? ` · ${p.county} County` : ""}` }, entityFilterLink(fig.entity)),
     el("td", { class: "col-fy", text: fmtFy(fig.fy) }),
     el("td", { class: "col-program", title: fig.program, text: fig.program }),
     el("td", { class: "col-cat", text: humanize(fig.category) }),
@@ -1114,7 +1132,7 @@ function niceStep(x) {
   return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
 }
 
-// Short tips for tags and inferred labels (data-tip), shown at once on hover
+// Short tips for tags (data-tip), shown at once on hover
 // or focus. A title attribute waits a second and cannot be styled.
 function initTips() {
   const tip = $("tooltip");
@@ -1275,7 +1293,7 @@ function renderFigurePanel(panel, fig, list) {
     panelTop([...nav, copyButton("Copy link", () => new URL(urlFor({ pinRef: false }), location.href).href), copyButton("Cite", () => citation(fig))]),
     el("div", { class: "panel-head" },
       el("div", { class: "kicker", text: [entityTypeLabel(p.entity_type), p.county ? `${p.county} County` : ""].filter(Boolean).join(" · ") }),
-      el("h2", {}, el("a", { href: entityHref(fig.entity), onclick: (ev) => { ev.preventDefault(); openEntity(fig.entity); }, text: fig.entity })),
+      el("h2", {}, entityFilterLink(fig.entity, true)),
       el("div", { class: "sub", text: `FY ${fmtFy(fig.fy)} · ${fig.program}` }),
       el("div", { class: "amount-line" },
         el("span", { class: "amount", text: fmtUsd(fig.value) }),
@@ -1376,8 +1394,8 @@ function para(text, empty = "") {
 }
 
 // What lib/arith.js may use to name the numbers in a bare equation: the
-// figure as printed, the lines the reading quotes, and the agency's other figures.
-function arithmeticContext(fig) {
+// figure as printed, the agency's other figures, and the page.
+function arithmeticContext(fig, page) {
   const p = fig.primary;
   const printed = String(p.source_value_text || "").replace(/[\s$]/g, "");
   const n = Number(printed.replace(/[(),]/g, ""));
@@ -1392,21 +1410,48 @@ function arithmeticContext(fig) {
     value: printed && Number.isFinite(n) ? (/^\(.*\)$/.test(printed) ? -n : n) : null,
     label: fig.label,
     program: fig.program,
-    hints: [...String(p.measure_read_from_source || "").matchAll(/['‘"“]([^'’"”]{2,60})['’"”]/g)].map((m) => m[1]),
     siblings,
+    pageNames: page ? (values) => namesFromPage(page.lines, page.column, values) : null,
   };
+}
+
+// The figure's page as lib/pagelines.js reads it, or null (also when it is
+// slow to arrive: the tables are then named from the note alone).
+const PAGE_WAIT_MS = 8000;
+function pageFor(fig) {
+  const p = fig.primary;
+  return ensureManifest().catch(() => null)
+    .then((m) => {
+      const meta = m?.files.get(p.outlined_figure_pdf);
+      const read = readPageText(dataUrl(p.outlined_figure_pdf), { sha256: meta?.sha256, bytes: meta?.bytes });
+      return Promise.race([read, new Promise((resolve) => setTimeout(resolve, PAGE_WAIT_MS, null))]);
+    })
+    .then((items) => {
+      if (!items) return null;
+      const lines = readPageLines(items);
+      const column = figureColumn(lines, arithmeticContext(fig).value, fig.label);
+      return column ? { lines, column } : null;
+    })
+    .catch(() => null);
 }
 
 // The release's arithmetic_check as tables: equations, then the context the
 // note states (headings, dates), then whatever lib/arith.js could not place.
+// Lines are named as the figure's page prints them, so the tables wait for it.
 function arithmeticView(fig) {
   const text = fig.primary.arithmetic_check;
   if (!text || !text.trim()) return para("", "None recorded.");
-  const { groups, facts, notes } = readArithmetic(text, arithmeticContext(fig));
+  const box = el("div", { class: "arith-view" }, para("", "Reading the page…"));
+  pageFor(fig).then((page) => box.replaceChildren(...[arithmeticTables(fig, text, page)].flat().filter(Boolean)));
+  return box;
+}
+
+function arithmeticTables(fig, text, page) {
+  const { groups, facts, notes } = readArithmetic(text, arithmeticContext(fig, page));
   if (!groups.length && !facts.length) return para(text);
   const row = (op, t, cls = "") => el("tr", { class: cls },
     el("td", { class: "op", text: op }),
-    el("th", { scope: "row", class: t.inferred ? "inferred" : "", "data-tip": t.inferred ? "Label inferred" : null, text: t.label }),
+    el("th", { scope: "row", text: t.label }),
     el("td", { class: "num", text: t.amount }));
   // A note whose own sum does not close is shown as its printed lines, with no
   // operators, so the table never claims arithmetic the release does not show.
@@ -1490,7 +1535,7 @@ function renderDocPanel(panel, src) {
       el("h2", { text: src.publication_title }),
       el("div", { class: "sub" },
         model.entityByName.has(src.receiving_entity)
-          ? el("a", { href: entityHref(src.receiving_entity), onclick: (ev) => { ev.preventDefault(); openEntity(src.receiving_entity); }, text: src.receiving_entity })
+          ? entityFilterLink(src.receiving_entity)
           : src.receiving_entity,
         ` · ${fmtInt(src._pages || 0)} pages · ${fmtBytes(src._bytes)}`)),
     ensureViewer() && viewerRoot,

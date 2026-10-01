@@ -11,6 +11,7 @@ import { parseCsv, parseCsvObjects, toCsv } from "../lib/csv.js";
 import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms, scopeLabel, scopeKey, scopeSymbol, basisLabel, grossNetLabel } from "../lib/model.js";
 import { readArithmetic } from "../lib/arith.js";
 import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.js";
+import { readPageLines, figureColumn, namesFromPage } from "../lib/pagelines.js";
 
 // CSV: quoted commas, doubled quotes, embedded CRLF, BOM
 {
@@ -130,16 +131,28 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
   ]);
   assert.deepEqual(c.notes, []);
 
-  // Bare numbers take the figure's own label, the lines the reading quotes,
-  // then a marked inferred role.
-  const e = readArithmetic("The table reconciles exactly: 10,760,449.18 + 3,171,016.75 + 665,354.12 - 1,432,160.06 = 13,164,659.99, the printed ending balance.",
-    { value: 3171016.75, label: "Amount of Reportable Fees Collected", hints: ["Amount of Reportable Fees Collected", "Interest Earned", "Expenditures"] });
-  assert.deepEqual(e.groups[0].terms.map((t) => [t.op, t.label, t.amount, Boolean(t.inferred)]), [
-    ["", "Beginning balance", "10,760,449.18", true], ["+", "Amount of Reportable Fees Collected", "3,171,016.75", false],
-    ["+", "Interest Earned", "665,354.12", true], ["−", "Expenditures", "1,432,160.06", true],
+  // Bare numbers are never named by guessing: without the page, an equation
+  // with an unnamed line stays the note's own sentence.
+  const bare = "The table reconciles exactly: 10,760,449.18 + 3,171,016.75 + 665,354.12 - 1,432,160.06 = 13,164,659.99, the printed ending balance.";
+  const e = readArithmetic(bare, { value: 3171016.75, label: "Amount of Reportable Fees Collected" });
+  assert.deepEqual(e.groups, []);
+  assert.deepEqual(e.notes, [bare]);
+  // With the page, every line takes the name printed beside its amount.
+  const named = ["Beginning Balance", "Fees Collected", "Interest Earned", "Expenditures", "Ending Balance"];
+  const ep = readArithmetic(bare, { value: 3171016.75, label: "Amount of Reportable Fees Collected", pageNames: (vs) => (vs.length === 5 ? named : null) });
+  assert.deepEqual(ep.groups[0].terms.map((t) => [t.op, t.label, t.amount]), [
+    ["", "Beginning Balance", "10,760,449.18"], ["+", "Fees Collected", "3,171,016.75"], ["+", "Interest Earned", "665,354.12"], ["−", "Expenditures", "1,432,160.06"],
   ]);
-  assert.equal(e.groups[0].total.label, "Ending balance");
-  assert.deepEqual(e.notes, []);
+  assert.equal(ep.groups[0].total.label, "Ending Balance");
+  assert.deepEqual(ep.notes, []);
+
+  // A sentence stating one amount stays in the note's words, never a fact row
+  // named from a fragment ("Includes a"); its semicolon pieces stay together.
+  const one = readArithmetic("The total includes a $5,598,215 General Fund loan repayment. The seven lines sum to $12,226,455; no dash is treated as an observed zero.");
+  assert.deepEqual(one.facts, []);
+  assert.deepEqual(one.notes, ["The total includes a $5,598,215 General Fund loan repayment.", "The seven lines sum to $12,226,455; no dash is treated as an observed zero."]);
+  // "add to 6,554,214.08" is one amount, not "6" and "554,214.08".
+  assert.deepEqual(readArithmetic("And the county's sixteen spheres add to 6,554,214.08, the total its own summary page prints for all of them.").facts.map((f) => f.value), ["6,554,214.08"]);
 
   // Lines the note names once, then gives per fund in numbers; captions name the fund.
   const f = readArithmetic("Every column reconciles: Fees + Interest equals the printed Total Revenues for each fund (for example ADMIN 19,356 + 4,546 = 23,902; SEWER 329,478 + 126,850 = 456,328).");
@@ -155,6 +168,42 @@ import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.j
   assert.deepEqual(d.groups[0].terms.map((t) => [t.op, t.label, t.amount]), [["", "Beginning balance", "100"], ["", "Fees", "50"]]);
   assert.deepEqual(d.notes, []);
   assert.deepEqual(readArithmetic(""), { groups: [], facts: [], notes: [] });
+}
+
+// Page names: each amount takes the words before it on its own printed line.
+{
+  // pdf.js items on a page turned 90 degrees, as on Santa Clara's ledger.
+  const item = (str, row, at, width) => ({ str, transform: [0, 7, -8, 0, row, at], width });
+  const ledger = [
+    item("FY 2021-22 Ending Fund Balance", 209, 113, 104), item("20,682,234", 209, 622, 32),
+    item("Fees Collected", 223, 113, 43), item("36,637,032", 223, 622, 32),
+    item("Interest Earned", 238, 113, 44), item("577,716", 238, 631, 23),
+    item("Expenditures", 252, 113, 38), item("(12,226,455)", 252, 620, 37),
+    item("FY 2022-23 Ending Fund Balance", 266, 113, 104), item("45,670,527", 266, 622, 32),
+    // The same amount again in another table, under another name and column.
+    item("Totals", 568, 113, 20), item("12,226,455", 568, 86, 33),
+  ];
+  const lines = readPageLines(ledger);
+  const column = figureColumn(lines, 36637032, "Fees Collected");
+  assert.ok(column);
+  assert.deepEqual(namesFromPage(lines, column, [20682234, 36637032, 577716, 12226455, 45670527]),
+    ["FY 2021-22 Ending Fund Balance", "Fees Collected", "Interest Earned", "Expenditures", "FY 2022-23 Ending Fund Balance"]);
+  // An amount not printed in the figure's column is not named.
+  assert.equal(namesFromPage(lines, column, [36637032, 999]), null);
+  // The figure's own line must carry the name the release records for it.
+  assert.equal(figureColumn(lines, 36637032, "Interest Earned"), null);
+
+  // A name wrapped over two lines ("REVENUES OVER (UNDER)" / "EXPENDITURES") is not read.
+  const flat = (str, row, at, width) => ({ str, transform: [10, 0, 0, 10, at, row], width });
+  const wrapped = readPageLines([
+    flat("Fees", 500, 40, 20), flat("58,443", 500, 300, 30),
+    flat("REVENUES OVER (UNDER)", 470, 40, 120), flat("EXPENDITURES", 459, 52, 70), flat("48,480", 459, 300, 30),
+  ]);
+  assert.equal(namesFromPage(wrapped, figureColumn(wrapped, 58443, "Fees"), [58443, 48480]), null);
+
+  // Funds as columns: one row name for every amount is not a line name.
+  const across = readPageLines([flat("Mitigation Fees", 500, 40, 70), flat("76,571", 500, 200, 30), flat("940,293", 500, 260, 30), flat("1,016,864", 500, 320, 40)]);
+  assert.equal(namesFromPage(across, figureColumn(across, 940293, "Mitigation Fees"), [76571, 940293, 1016864]), null);
 }
 
 // Geometry: MuPDF top-left coordinates relative to the CropBox -> PDF user space.

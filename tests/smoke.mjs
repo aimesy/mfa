@@ -157,6 +157,29 @@ try {
     await page.keyboard.press("Escape");
   }
 
+  // A bare-number equation takes its line names from the page, never a guess.
+  const bare = primary.find((r) => r.figure_group_id === "city-of-santa-clara-2022-23-parks-mitigation-fee-fund-532");
+  if (bare) {
+    await openFigureById(page, bare.figure_group_id);
+    await page.waitForSelector(".grid.arith");
+    const names = await page.locator(".grid.arith tbody th[scope=row]").allInnerTexts();
+    assert.deepEqual(names, ["FY 2021-22 Ending Fund Balance", "Fees Collected", "Interest Earned", "Expenditures", "FY 2022-23 Ending Fund Balance"]);
+    await shot(page, "04b-arithmetic-from-page");
+    await page.keyboard.press("Escape");
+  }
+
+  // A jurisdiction's name filters the table to that jurisdiction.
+  await page.goto(base);
+  await page.waitForSelector(".figures-grid tbody tr .col-entity a");
+  const named = await page.locator(".figures-grid tbody tr .col-entity a").first().innerText();
+  await page.locator(".figures-grid tbody tr .col-entity a").first().click();
+  await page.waitForSelector(".filter-tag");
+  assert.equal(await page.locator("#panel").isVisible(), false, "the name filters; it does not open the figure");
+  const listed = new Set(await page.locator(".figures-grid tbody tr .col-entity").allInnerTexts());
+  assert.deepEqual([...listed], [named]);
+  const expected = primary.filter((r) => r.receiving_entity === named).length;
+  assert.equal((await page.locator(".result-bar .count strong").innerText()).replace(/,/g, ""), String(expected));
+
   // Jurisdiction dossier: matrix totals are primary sums per year
   const entity = "City of Brentwood";
   await page.goto(`${base}&view=entities&e=${encodeURIComponent(entity)}`);
