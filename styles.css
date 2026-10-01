@@ -146,15 +146,6 @@ body.amyc-has-public-records-footer .app {
   border-color: var(--ink-3);
   border-bottom-color: var(--paper);
 }
-.view-strip-note {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .toolbar {
   background: var(--paper-2);
@@ -714,7 +705,7 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
   .pv-scroll { height: 58vh; }
 }
 @media (max-width: 720px) {
-  .view-strip-note, .hide-narrow { display: none; }
+  .hide-narrow { display: none; }
   .view-tab { padding: 0 0.5rem; }
   .entity-bar { padding: 0.45rem 0.6rem; }
   .toolbar { padding: 0.4rem 0.6rem; }

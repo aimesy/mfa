@@ -54,7 +54,6 @@ assert.match(evidence, /isEvalSupported: false/);
 assert.match(app, /raw\.githubusercontent\.com\/\$\{REPO\}\//, "viewer must read the release from GitHub");
 assert.match(app, /const REPO = "aimesy\/mfa-data";/);
 assert.match(model, /is_primary_in_figure_group === TRUE/, "sums must come from primary rows only");
-assert.match(app, /Empty is not zero/, "the page must say a missing figure is not a zero");
 assert.match(app, /mx-empty/, "the jurisdiction matrix must mark missing cells as missing");
 assert.match(evidence, /sha256Hex/, "evidence files must be hash-checked");
 assert.match(viewer, /verify\(\)/, "boxes must be checked against the evidence outline before they are drawn");

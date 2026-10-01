@@ -341,11 +341,11 @@ function updateTitle() {
   const base = "California Impact Fee Collections";
   const fig = state.figure && model?.figureById.get(state.figure);
   let t = base;
-  if (fig) t = `${fig.entity} · ${fmtFy(fig.fy)} · ${fig.program} — ${base}`;
-  else if (state.view === "entities" && state.entity) t = `${state.entity} — ${base}`;
-  else if (state.view === "entities") t = `Jurisdictions — ${base}`;
-  else if (state.view === "sources") t = `Sources — ${base}`;
-  else if (state.view === "about") t = `About — ${base}`;
+  if (fig) t = `${fig.entity} · ${fmtFy(fig.fy)} · ${fig.program} · ${base}`;
+  else if (state.view === "entities" && state.entity) t = `${state.entity} · ${base}`;
+  else if (state.view === "entities") t = `Jurisdictions · ${base}`;
+  else if (state.view === "sources") t = `Sources · ${base}`;
+  else if (state.view === "about") t = `About · ${base}`;
   document.title = t;
 }
 
@@ -548,7 +548,7 @@ function activeFilterTags() {
 }
 
 function sumNote(summary) {
-  return el("span", { class: "sum", title: "Primary rows only. Not a statewide total." },
+  return el("span", { class: "sum", title: "Primary rows only" },
     "sum ", el("strong", { text: fmtSum(summary.sum) }));
 }
 
@@ -756,7 +756,7 @@ function renderEntities(content) {
   content.append(
     el("div", { class: "result-bar" },
       el("span", {}, el("strong", { text: fmtInt(list.length) }), ` jurisdiction${list.length === 1 ? "" : "s"} · ${fmtInt(figures)} figures`),
-      el("span", { class: "sum", title: "Primary rows only. Coverage differs by jurisdiction." }, "sum ", el("strong", { text: fmtSum(total) }))),
+      el("span", { class: "sum", title: "Primary rows only" }, "sum ", el("strong", { text: fmtSum(total) }))),
     el("div", { class: "table-scroll" }, el("table", { class: "grid entities-grid" },
       el("thead", {}, el("tr", {},
         sortHeader("Jurisdiction", "name", s, onSort, "col-entity"),
@@ -816,7 +816,6 @@ function renderEntityDossier(content) {
         update({ push: true });
       }, text: "Show in figures table" }),
       copyButton("Copy link", () => new URL(urlFor(), location.href).href)),
-    el("p", { class: "note", text: "Empty = no figure, not zero." }),
   );
 
   const years = matrix.years;
@@ -956,22 +955,21 @@ function renderAbout(content) {
     tile("Source publications", fmtInt(model.sources.length)),
     tile("Fiscal years", fmtInt(model.years.length), `${fmtFy(firstFy)} to ${fmtFy(lastFy)}`),
   );
+  const share = (test) => `${Math.round((100 * model.figures.filter(test).length) / model.figures.length)}%`;
   const wrap = el("div", { class: "about" },
     el("h2", { text: "About" }),
     el("p", {}, "Impact fee collections California agencies reported, from the ",
       el("a", { href: `${GITHUB_ROOT}tree/${githubRef()}`, target: "_blank", rel: "noopener", text: "mfa-data" }),
-      " release. Each figure opens on its outlined page in the original report. No figures are derived."),
+      " release. Each figure opens on its outlined page in the original report."),
     tiles,
     el("h3", { class: "section-label", text: "Figures by fiscal year" }),
     coverageChart(cov),
-    el("p", { class: "note", text: "Counts figures, not dollars." }),
-    el("h3", { class: "section-label", text: "Rules" }),
+    el("h3", { class: "section-label", text: "Notes" }),
     el("ul", { class: "rules" },
       el("li", { text: "Sums add primary rows only." }),
-      el("li", { text: "Empty is not zero." }),
-      el("li", { text: "Land use is as the source states it. Almost all figures are not split." }),
-      el("li", { text: "Includes Quimby in-lieu, §66013 capacity charges and development-agreement fees where reported." }),
-      el("li", { text: "Accounting basis is mostly not stated." }),
+      el("li", { text: `${share((f) => scopeKey(f.primary.land_use_scope) === "not_split")} of figures are one amount for all land uses.` }),
+      el("li", { text: `Reports state an accounting basis for ${share((f) => !["", "Not stated"].includes(basisLabel(f.primary.accounting_basis_source_read)))} of figures.` }),
+      el("li", { text: "Quimby in lieu fees, §66013 capacity charges and development agreement fees appear where agencies reported them." }),
     ),
     el("div", { id: "about-release" }, el("p", { class: "muted", text: "Loading…" })),
   );
@@ -1012,7 +1010,6 @@ function fillAbout() {
   const kv = (k, v) => el("tr", {}, el("th", { scope: "row", text: k }), el("td", { class: "num", text: v }));
   slot.replaceChildren(
     el("h3", { class: "section-label", text: "Review" }),
-    el("p", {}, cohort.what_this_is || ""),
     el("table", { class: "grid kv" }, el("tbody", {},
       kv("Cohort reviewed", fmtInt(cohort.reviewed)),
       kv("Cohort published", fmtInt(cohort.published)),
@@ -1020,7 +1017,6 @@ function fillAbout() {
       kv("Undecided", fmtInt(cohort.remaining_undecided)),
       kv("Statewide lane", fmtInt(cohort.statewide_lane_rows_in_data_file)),
       kv("Total rows", fmtInt(cohort.total_rows_in_data_file)))),
-    el("p", { class: "note", text: cohort.statewide_lane_note || "" }),
     el("h3", { class: "section-label", text: "Refusals" }),
     el("div", { class: "table-scroll" }, el("table", { class: "grid" },
       el("thead", {}, el("tr", {}, ["Reason", "Rows", "Agencies", "Documents"].map((h, i) => el("th", { scope: "col", class: i ? "num" : "", text: h })))),
