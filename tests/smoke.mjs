@@ -246,6 +246,31 @@ try {
   assert.ok(feeRowsShown.includes("Road Development Fund (Fund 582/1582)"));
   assert.ok(!feeRowsShown.some((n) => n.startsWith("Road Development Fund (Fund 582)") || n.startsWith("Road Development Fund (Fund 1582)")));
 
+  // In Fees and Sources too, a jurisdiction's name filters the list to it and,
+  // clicked again, opens its page.
+  for (const [view, grid, expected] of [
+    ["fees", ".fees-grid", (n) => new Set(primary.filter((r) => r.receiving_entity === n).map((r) => r.fee_program)).size - FEE_LINKS.filter((l) => l[0] === n).length],
+    ["sources", ".sources-grid", (n) => sources.filter((s) => s.receiving_entity === n).length],
+  ]) {
+    await page.goto(`${base}&view=${view}`);
+    const link = page.locator(`${grid} tbody tr .col-entity a`);
+    await link.first().waitFor();
+    const name = await link.first().innerText();
+    await link.first().click();
+    await page.waitForSelector(".result-bar .filter-tag");
+    assert.equal(await page.locator("#panel").isVisible(), false, `${view}: the name filters; it does not open the row`);
+    assert.match(page.url(), new RegExp(`[?&]${view[0]}entity=`));
+    assert.deepEqual([...new Set(await page.locator(`${grid} tbody tr .col-entity`).allInnerTexts())], [name]);
+    assert.equal((await page.locator(".result-bar strong").first().innerText()).replace(/,/g, ""), String(expected(name)), `${view}: count for ${name}`);
+    await link.first().click();
+    await page.waitForSelector(".matrix");
+    assert.equal(await page.locator(".dossier-head h2").innerText(), name);
+    await page.goBack();
+    await page.waitForSelector(".result-bar .filter-tag");
+    await page.click(".result-bar .filter-tag button");
+    await page.waitForFunction((g) => new Set([...document.querySelectorAll(`${g} tbody tr .col-entity`)].map((td) => td.innerText)).size > 1, grid);
+  }
+
   // Sources: a large report opens by byte range, with the page's figures boxed
   const big = sources
     .filter((s) => Number(s.source_bytes) > 12 * 1024 * 1024 && Number(s.published_data_rows_from_this_source) > 0)

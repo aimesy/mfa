@@ -128,10 +128,10 @@ const state = {
   entity: "",
   eq: "", etype: "", ecounty: "",
   esort: { ...DEFAULT_ENTITY_SORT },
-  sq: "",
+  sq: "", sentity: "",
   ssort: { ...DEFAULT_SOURCE_SORT },
   fee: "",
-  fq: "", fcat: "", ftype: "", fcounty: "",
+  fq: "", fcat: "", ftype: "", fcounty: "", fentity: "",
   fsort: { ...DEFAULT_FEE_SORT },
   figure: "",
   doc: "",
@@ -191,12 +191,14 @@ function readState() {
   state.ecounty = p.get("ecounty") || "";
   state.esort = parseSort(p.get("esort"), DEFAULT_ENTITY_SORT, ENTITY_SORTS);
   state.sq = p.get("sq") || "";
+  state.sentity = p.get("sentity") || "";
   state.ssort = parseSort(p.get("ssort"), DEFAULT_SOURCE_SORT, SOURCE_SORTS);
   state.fee = state.view === "fees" ? p.get("fee") || "" : "";
   state.fq = p.get("fq") || "";
   state.fcat = p.get("fcat") || "";
   state.ftype = p.get("ftype") || "";
   state.fcounty = p.get("fcounty") || "";
+  state.fentity = p.get("fentity") || "";
   state.fsort = parseSort(p.get("fsort"), DEFAULT_FEE_SORT, FEE_SORTS);
   state.figure = p.get("f") || "";
   state.doc = state.figure ? "" : p.get("doc") || "";
@@ -228,11 +230,11 @@ function stateParams({ pinRef = false } = {}) {
       put("e", state.entity);
       put("fee", state.fee);
     } else {
-      put("fq", state.fq); put("fcat", state.fcat); put("ftype", state.ftype); put("fcounty", state.fcounty);
+      put("fq", state.fq); put("fcat", state.fcat); put("ftype", state.ftype); put("fcounty", state.fcounty); put("fentity", state.fentity);
       put("fsort", sortParam(state.fsort, DEFAULT_FEE_SORT));
     }
   } else if (state.view === "sources") {
-    put("sq", state.sq);
+    put("sq", state.sq); put("sentity", state.sentity);
     put("ssort", sortParam(state.ssort, DEFAULT_SOURCE_SORT));
   }
   if (state.figure) {
@@ -490,12 +492,12 @@ function renderToolbar() {
       chip("Category", select("fcat", choices(model.categories, humanize), state.fcat, (v) => { state.fcat = v; update(); })),
       chip("Type", select("ftype", choices(model.types, entityTypeLabel), state.ftype, (v) => { state.ftype = v; update(); })),
       chip("County", select("fcounty", choices(model.counties, (c) => c), state.fcounty, (v) => { state.fcounty = v; update(); })),
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = ""; toolbarView = ""; update(); } }),
+      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = ""; state.fentity = ""; toolbarView = ""; update(); } }),
     );
   } else if (key === "sources") {
     bar.append(
       chip("Search", searchInput("sq", state.sq, "agency, title, source id, fiscal year", (v) => { state.sq = v; update(); })),
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.sq = ""; toolbarView = ""; update(); } }),
+      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.sq = ""; state.sentity = ""; toolbarView = ""; update(); } }),
     );
   }
 }
@@ -532,7 +534,8 @@ function renderAll() {
   renderTabs();
   renderToolbar();
   const ck = JSON.stringify([state.view, state.filters, state.sort, state.page, state.pageSize, state.entity,
-    state.eq, state.etype, state.ecounty, state.esort, state.sq, state.ssort, state.fee, state.fq, state.fcat, state.ftype, state.fcounty, state.fsort]);
+    state.eq, state.etype, state.ecounty, state.esort, state.sq, state.sentity, state.ssort,
+    state.fee, state.fq, state.fcat, state.ftype, state.fcounty, state.fentity, state.fsort]);
   if (ck !== contentKey) {
     contentKey = ck;
     renderContent();
@@ -716,6 +719,29 @@ function entityFilterLink(name, keepFigure = false) {
       update({ push: true });
     },
   });
+}
+
+// The same in the Fees and Sources tables: the name shows only the
+// jurisdiction's rows, in place of that table's other filters, and once they
+// are showing, opens its page if it has one.
+function entityRowLink(name, filtered, href, filter) {
+  const open = filtered && model.entityByName.has(name);
+  if (filtered && !open) return name;
+  return el("a", {
+    class: "entity-link", href: open ? entityHref(name) : href, text: name,
+    onclick: (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (open) return openEntity(name);
+      filter();
+      update({ push: true });
+      scrollContentTop();
+    },
+  });
+}
+
+function entityTag(name, onRemove) {
+  return el("span", { class: "active-filters" }, name ? filterTag(`Jurisdiction: ${name}`, onRemove) : null);
 }
 
 function scopeTag(code, named = false) {
@@ -951,6 +977,7 @@ function feeRows() {
   const terms = searchTerms(state.fq);
   let list = model.fees.filter((f) => {
     const p = f.figures[f.figures.length - 1].primary;
+    if (state.fentity && f.entity !== state.fentity) return false;
     if (state.fcat && !matchesChoice(state.fcat, f.category)) return false;
     if (state.ftype && !matchesChoice(state.ftype, p.entity_type)) return false;
     if (state.fcounty && !matchesChoice(state.fcounty, p.county)) return false;
@@ -974,12 +1001,15 @@ function feeRows() {
 function renderFees(content) {
   const list = feeRows();
   const total = list.reduce((s, f) => s + f.sum, 0);
+  const entities = new Set(list.map((f) => f.entity)).size;
   const onSort = (col) => { state.fsort = toggleSort(state.fsort, col, NUMERIC_SORTS.has(col)); update(); };
   const s = state.fsort;
   const body = el("tbody");
   for (const f of list) {
     body.append(el("tr", { onclick: (ev) => { if (!ev.target.closest("a,button")) openFee(f); } },
-      el("td", { class: "col-entity", text: f.entity }),
+      el("td", { class: "col-entity" }, entityRowLink(f.entity, state.fentity === f.entity, hrefWith({ view: "fees", fentity: f.entity }), () => {
+        state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = ""; state.fentity = f.entity;
+      })),
       el("td", { class: "col-fee", title: f.names.length > 1 ? `Printed as ${f.names.join(", then ")}` : null }, feeLink(f)),
       el("td", { text: humanize(f.category) }),
       el("td", { class: "col-years", title: fyRanges(f.yearList), text: fyRanges(f.yearList) }),
@@ -991,8 +1021,9 @@ function renderFees(content) {
   if (!list.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 7, text: "No fee matches." })));
   content.append(
     el("div", { class: "result-bar" },
-      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` fee${list.length === 1 ? "" : "s"} · ${fmtInt(new Set(list.map((f) => f.entity)).size)} jurisdictions`),
-      el("span", { class: "sum", title: "Primary rows only" }, "sum ", el("strong", { text: fmtSum(total) }))),
+      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` fee${list.length === 1 ? "" : "s"} · ${fmtInt(entities)} jurisdiction${entities === 1 ? "" : "s"}`),
+      el("span", { class: "sum", title: "Primary rows only" }, "sum ", el("strong", { text: fmtSum(total) })),
+      entityTag(state.fentity, () => { state.fentity = ""; update(); })),
     el("div", { class: "table-scroll" }, el("table", { class: "grid fees-grid" },
       el("thead", {}, el("tr", {},
         sortHeader("Jurisdiction", "entity", s, onSort, "col-entity"),
@@ -1144,7 +1175,7 @@ function feeChart(fee, span) {
 
 function sourceRows() {
   const q = state.sq.trim().toLowerCase();
-  let list = q ? model.sources.filter((s) => s._search.includes(q)) : model.sources;
+  let list = model.sources.filter((s) => (!state.sentity || s.receiving_entity === state.sentity) && (!q || s._search.includes(q)));
   const { col, dir } = state.ssort;
   const d = dir === "asc" ? 1 : -1;
   const key = {
@@ -1172,7 +1203,8 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
       dataset: { doc: src.source_id },
       onclick: (ev) => { if (!ev.target.closest("a,button")) openDoc(src.source_id); },
     },
-      compact ? null : el("td", { class: "col-entity", text: src.receiving_entity }),
+      compact ? null : el("td", { class: "col-entity" }, entityRowLink(src.receiving_entity, state.sentity === src.receiving_entity,
+        hrefWith({ view: "sources", sentity: src.receiving_entity }), () => { state.sq = ""; state.sentity = src.receiving_entity; })),
       el("td", { class: "col-title", title: src.publication_title, text: src.publication_title }),
       el("td", { class: "col-type", title: src.publication_type, text: publicationTypeLabel(src.publication_type) }),
       el("td", { class: "col-fy", text: fmtFy(src.covers_fiscal_year) }),
@@ -1217,7 +1249,8 @@ function renderSources(content) {
   const pages = list.reduce((s, x) => s + (x._pages || 0), 0);
   content.append(
     el("div", { class: "result-bar" },
-      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` publication${list.length === 1 ? "" : "s"} · ${fmtInt(pages)} pages`)),
+      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` publication${list.length === 1 ? "" : "s"} · ${fmtInt(pages)} pages`),
+      entityTag(state.sentity, () => { state.sentity = ""; update(); })),
     sourcesTable(list, { sortable: true }),
   );
 }
