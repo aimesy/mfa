@@ -3,7 +3,7 @@
 - This repository contains the public static viewer for the `aimesy/mfa-data` release of California impact fee collections.
 - Keep release files out of this repo. The viewer reads the CSV, `sources/index.csv`, `manifest.json`, evidence PDFs and reports from `raw.githubusercontent.com/aimesy/mfa-data/<sha>/` at run time.
 - Do not write to `aimesy/mfa-data` from here. Its release pipeline is the only writer to `main` and owns `manifest.json`, `validation/`, `README.md`, `docs/` and `data/`.
-- The shared theme is pinned to one `aimesy/themes` commit. Bump all five URLs in `index.html` together; `check-static.mjs` enforces a single SHA.
+- The shared theme loads live from `https://aimesy.github.io/themes/src/` (the test-gated Pages copy of `aimesy/themes`), so a theme merge reaches this site without a change here. Do not pin it to a commit or load it from jsDelivr; `check-static.mjs` requires each of the five assets in `index.html` exactly once from that URL.
 - Release text reaches the DOM through `textContent` or attributes only. `check-static.mjs` fails on `innerHTML` and similar calls.
 - pdf.js 4.10.38 is vendored in `vendor/`. Keep `isEvalSupported: false`.
 - Tag symbols are drawn in black and white from the whole Noto Emoji face in `vendor/noto-emoji/` (Google's unicode-range subsets; a page loads only the ones it uses). Put symbols in a `.sym` span with U+FE0E so they never fall back to a colour emoji font.

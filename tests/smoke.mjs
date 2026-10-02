@@ -4,8 +4,8 @@
 //
 // Environment:
 //   MFA_DATA_ROOT   release checkout to serve (default: ../mfa-data beside this repo)
-//   THEMES_DIR      serve the pinned aimesy/themes assets from this checkout
-//                   instead of the CDN (for sandboxes that cannot reach it)
+//   THEMES_DIR      serve the shared aimesy/themes assets from this checkout
+//                   instead of aimesy.github.io (for sandboxes that cannot reach it)
 //   BROWSER_PROXY   passed to Chromium as --proxy-server
 //   SCREENSHOT_DIR  write screenshots here
 
@@ -46,7 +46,7 @@ const problems = [];
 async function newPage(viewport = { width: 1440, height: 900 }, init) {
   const page = await browser.newPage({ viewport });
   if (process.env.THEMES_DIR) {
-    await page.route(/cdn\.jsdelivr\.net\/gh\/aimesy\/themes@[0-9a-f]{40}\/src\//, (route) => {
+    await page.route(/^https:\/\/aimesy\.github\.io\/themes\/src\//, (route) => {
       const name = route.request().url().split("/src/")[1];
       route.fulfill({ path: path.join(process.env.THEMES_DIR, "src", name), contentType: name.endsWith(".css") ? "text/css" : "text/javascript" });
     });

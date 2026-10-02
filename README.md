@@ -1,6 +1,6 @@
 # MFA viewer
 
-A static site for looking at every figure in the `aimesy/mfa-data` release beside the page it was read from. It uses the shared `aimesy/themes` theme, pinned to one commit.
+A static site for looking at every figure in the `aimesy/mfa-data` release beside the page it was read from. It uses the shared `aimesy/themes` theme, loaded live from `https://aimesy.github.io/themes/src/`.
 
 This repository is the viewer; `aimesy/mfa-data` is the release it reads, as `aimesy/kcsc` is to `aimesy/kcsc-data`.
 
@@ -33,7 +33,7 @@ Every view is in the URL, so any figure, filter or page is a link. **Cite** copi
 
 ## How it differs from tentatives
 
-It follows `aimesy/tentatives` in layout: a chip toolbar, a table plus a detail panel, URL-driven state, CSV export, links to the PDF page, and the same pinned theme. The unit is different, though. A tentative ruling is a document; here the unit is a number at a spot on a page. That changes six things:
+It follows `aimesy/tentatives` in layout: a chip toolbar, a table plus a detail panel, URL-driven state, CSV export, links to the PDF page, and the same shared theme. The unit is different, though. A tentative ruling is a document; here the unit is a number at a spot on a page. That changes six things:
 
 1. **The detail panel is an evidence viewer.** pdf.js renders the page in the panel and boxes the figure on it, which a browser's own PDF viewer opened at `#page=N` has no way to do.
 2. **Sums add primary rows only.** A printed number recorded at two measure grains is shown once and added once. Each sum covers the figures shown, and coverage differs by agency and year.
@@ -71,12 +71,12 @@ node tests/serve.mjs          # this repo at /mfa/, the release at /mfa-data/, w
 ## Tests
 
 ```bash
-node check-static.mjs         # pinned theme, page policy, no HTML injection, data rules
+node check-static.mjs         # shared theme, page policy, no HTML injection, data rules
 node tests/model.test.mjs     # CSV reader, figure model, outline geometry (plus the real release when a checkout is present)
 node tests/smoke.mjs          # Chromium via Playwright against the local release
 ```
 
-The tests find the release through `MFA_DATA_ROOT`, or `../mfa-data` beside this repository. `smoke.mjs` also accepts `THEMES_DIR` (serve the pinned theme from a local `aimesy/themes` checkout), `BROWSER_PROXY` and `SCREENSHOT_DIR`.
+The tests find the release through `MFA_DATA_ROOT`, or `../mfa-data` beside this repository. `smoke.mjs` also accepts `THEMES_DIR` (serve the shared theme from a local `aimesy/themes` checkout), `BROWSER_PROXY` and `SCREENSHOT_DIR`.
 
 ## Deployment
 
