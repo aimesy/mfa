@@ -214,8 +214,27 @@ try {
   const years = new Set(primary.filter((r) => r.receiving_entity === entity).map((r) => r.fiscal_year));
   assert.equal(await page.locator(".matrix thead th").count(), years.size + 1, "one column per fiscal year present");
   assert.ok(await page.locator(".matrix .mx-empty").count() > 0, "missing cells are shown as missing");
-  await page.locator(".mx-cell").first().click();
-  await page.waitForSelector(".pv-box.current", { state: "attached" });
+  // A cell opens its figure's evidence. Some recorded rectangles fail the
+  // outline check and get no box (Anderson's above; Brentwood's before
+  // 2008-09), so take the first cell that gets one, from a fresh page each
+  // time so a note left by the previous figure is not read as this one's.
+  const cellIds = await page.locator(".mx-cell").evaluateAll((cells) => cells.map((c) => c.dataset.id));
+  let boxed = null;
+  for (const [i, id] of cellIds.entries()) {
+    if (i) {
+      await page.goto(`${base}&e=${encodeURIComponent(entity)}`);
+      await page.waitForSelector(".mx-cell");
+    }
+    await page.locator(`.mx-cell[data-id=${JSON.stringify(id)}]`).click();
+    await page.waitForSelector(`.pv-box.current[data-figure=${JSON.stringify(id)}], .pv-note:not([hidden])`, { state: "attached" });
+    if (await page.locator(".pv-box.current").count()) {
+      boxed = id;
+      break;
+    }
+  }
+  assert.ok(boxed, `no ${entity} figure gets a box`);
+  assert.match(page.url(), new RegExp(`[?&]f=${encodeURIComponent(boxed)}(&|$)`), "the cell opens its own figure");
+  assert.ok(await redRatio(page) > 0.3, "the dossier figure's box sits on its red outline");
   await shot(page, "05-dossier");
 
   // Fees: one row per fee; a renumbered fund is one fee, its history year by year
