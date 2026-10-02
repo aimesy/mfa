@@ -288,7 +288,33 @@ try {
     await page.waitForSelector(".result-bar .filter-tag");
     await page.click(".result-bar .filter-tag button");
     await page.waitForFunction((g) => new Set([...document.querySelectorAll(`${g} tbody tr .col-entity`)].map((td) => td.innerText)).size > 1, grid);
+    // A click in the cell beside the name is a click on the name.
+    const cell = page.locator(`${grid} tbody tr .col-entity`).nth(1);
+    const cellName = await cell.innerText();
+    const box = await cell.boundingBox();
+    await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+    await page.waitForSelector(".result-bar .filter-tag");
+    assert.equal(await page.locator("#panel").isVisible(), false, `${view}: the cell filters; it does not open the row`);
+    assert.deepEqual([...new Set(await page.locator(`${grid} tbody tr .col-entity`).allInnerTexts())], [cellName]);
   }
+
+  // The name in an open report or figure filters the tab being read, and the
+  // panel stays open.
+  await page.goto(`${base}&view=sources`);
+  await page.locator(".sources-grid tbody tr .col-title").first().click();
+  await page.locator("#panel .panel-head .sub a.entity-link").click();
+  await page.waitForSelector(".result-bar .filter-tag");
+  assert.match(page.url(), /[?&]sentity=/);
+  assert.match(page.url(), /[?&]doc=/, "the report stays open");
+  assert.doesNotMatch(page.url(), /view=figures/);
+  await page.goto(`${base}&view=fees&fq=${encodeURIComponent("woodland road development")}`);
+  await page.locator(".fees-grid tbody tr .col-fee a").click();
+  await page.locator(".fee-grid tbody tr[data-id] .pdf-btn").first().click();
+  await page.locator("#panel .panel-head h2 a.entity-link").click();
+  await page.waitForSelector(".result-bar .filter-tag");
+  assert.match(page.url(), /[?&]fentity=City\+of\+Woodland/);
+  assert.match(page.url(), /[?&]f=/, "the figure stays open");
+  assert.deepEqual([...new Set(await page.locator(".fees-grid tbody tr .col-entity").allInnerTexts())], ["City of Woodland"]);
 
   // Sources: a large report opens by byte range, with the page's figures boxed
   const big = sources

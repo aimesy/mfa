@@ -696,48 +696,73 @@ function showFiltered(filters) {
   scrollContentTop();
 }
 
-// A jurisdiction's name: shows only its figures, and once they are showing,
-// opens its page. From the figure panel the figure stays open beside either.
-function entityFilterLink(name, keepFigure = false) {
-  const filtered = () => state.view === "figures" && state.filters.entity === name;
-  return el("a", {
-    class: "entity-link", href: filtered() ? entityHref(name) : figuresHref({ entity: name }), text: name,
-    onclick: (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (filtered()) {
-        if (!keepFigure) return openEntity(name);
-        state.view = "entities";
-        state.entity = name;
-        update({ push: true });
-        return scrollContentTop();
-      }
-      if (!keepFigure) return showFiltered({ entity: name });
-      state.view = "figures";
-      state.filters = { ...EMPTY_FILTERS, entity: name };
-      state.page = 1;
-      update({ push: true });
-    },
-  });
+// A jurisdiction's name, wherever it is clicked: shows only its rows in the
+// tab being read (Fees and Sources filter themselves; any other tab, the
+// figures table), in place of that table's other filters, and once they are
+// showing, opens its page. From a panel the figure or report stays open.
+function entityFiltered(name) {
+  if (state.view === "fees") return !state.fee && state.fentity === name;
+  if (state.view === "sources") return state.sentity === name;
+  return state.view === "figures" && state.filters.entity === name;
 }
 
-// The same in the Fees and Sources tables: the name shows only the
-// jurisdiction's rows, in place of that table's other filters, and once they
-// are showing, opens its page if it has one.
-function entityRowLink(name, filtered, href, filter) {
-  const open = filtered && model.entityByName.has(name);
-  if (filtered && !open) return name;
+function entityFilterHref(name) {
+  if (state.view === "fees") return hrefWith({ view: "fees", fentity: name });
+  if (state.view === "sources") return hrefWith({ view: "sources", sentity: name });
+  return figuresHref({ entity: name });
+}
+
+function filterToEntity(name) {
+  if (state.view === "fees") {
+    state.fee = "";
+    state.entity = "";
+    state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = "";
+    state.fentity = name;
+  } else if (state.view === "sources") {
+    state.sq = "";
+    state.sentity = name;
+  } else {
+    state.view = "figures";
+    state.filters = { ...EMPTY_FILTERS, entity: name };
+    state.page = 1;
+    state.entity = "";
+  }
+}
+
+function entityFilterLink(name, keepPanel = false) {
+  const page = model.entityByName.has(name);
+  // An agency with reports but no figures has no page to open.
+  if (!page && entityFiltered(name)) return name;
   return el("a", {
-    class: "entity-link", href: open ? entityHref(name) : href, text: name,
+    class: "entity-link", href: entityFiltered(name) ? entityHref(name) : entityFilterHref(name), text: name,
     onclick: (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      if (open) return openEntity(name);
-      filter();
+      if (entityFiltered(name)) {
+        if (!page) return;
+        if (!keepPanel) return openEntity(name);
+        state.view = "entities";
+        state.entity = name;
+      } else {
+        filterToEntity(name);
+        if (!keepPanel) {
+          state.figure = "";
+          state.doc = "";
+          state.pg = null;
+        }
+      }
       update({ push: true });
       scrollContentTop();
     },
   });
+}
+
+// A click anywhere in a row's jurisdiction cell is a click on its name.
+function entityCellClick(ev) {
+  const a = ev.target.closest("td.col-entity")?.querySelector("a.entity-link");
+  if (!a || ev.target.closest("a,button")) return false;
+  a.click();
+  return true;
 }
 
 function entityTag(name, onRemove) {
@@ -783,7 +808,7 @@ function figureRow(fig, list) {
   const tr = el("tr", {
     class: fig.id === state.figure ? "selected-row" : "",
     dataset: { id: fig.id },
-    onclick: (e) => { if (!e.target.closest("a,button")) openFigure(fig.id, { list }); },
+    onclick: (e) => { if (!entityCellClick(e) && !e.target.closest("a,button")) openFigure(fig.id, { list }); },
   },
     el("td", { class: "col-entity", title: `${fig.entity}\n${entityTypeLabel(p.entity_type)}${p.county ? ` · ${p.county} County` : ""}` }, entityFilterLink(fig.entity)),
     el("td", { class: "col-fy", text: fmtFy(fig.fy) }),
@@ -1006,10 +1031,8 @@ function renderFees(content) {
   const s = state.fsort;
   const body = el("tbody");
   for (const f of list) {
-    body.append(el("tr", { onclick: (ev) => { if (!ev.target.closest("a,button")) openFee(f); } },
-      el("td", { class: "col-entity" }, entityRowLink(f.entity, state.fentity === f.entity, hrefWith({ view: "fees", fentity: f.entity }), () => {
-        state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = ""; state.fentity = f.entity;
-      })),
+    body.append(el("tr", { onclick: (ev) => { if (!entityCellClick(ev) && !ev.target.closest("a,button")) openFee(f); } },
+      el("td", { class: "col-entity" }, entityFilterLink(f.entity)),
       el("td", { class: "col-fee", title: f.names.length > 1 ? `Printed as ${f.names.join(", then ")}` : null }, feeLink(f)),
       el("td", { text: humanize(f.category) }),
       el("td", { class: "col-years", title: fyRanges(f.yearList), text: fyRanges(f.yearList) }),
@@ -1201,10 +1224,9 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
     body.append(el("tr", {
       class: src.source_id === state.doc ? "selected-row" : "",
       dataset: { doc: src.source_id },
-      onclick: (ev) => { if (!ev.target.closest("a,button")) openDoc(src.source_id); },
+      onclick: (ev) => { if (!entityCellClick(ev) && !ev.target.closest("a,button")) openDoc(src.source_id); },
     },
-      compact ? null : el("td", { class: "col-entity" }, entityRowLink(src.receiving_entity, state.sentity === src.receiving_entity,
-        hrefWith({ view: "sources", sentity: src.receiving_entity }), () => { state.sq = ""; state.sentity = src.receiving_entity; })),
+      compact ? null : el("td", { class: "col-entity" }, entityFilterLink(src.receiving_entity)),
       el("td", { class: "col-title", title: src.publication_title, text: src.publication_title }),
       el("td", { class: "col-type", title: src.publication_type, text: publicationTypeLabel(src.publication_type) }),
       el("td", { class: "col-fy", text: fmtFy(src.covers_fiscal_year) }),
@@ -1887,8 +1909,8 @@ function renderDocPanel(panel, src) {
       el("div", { class: "kicker", text: `${publicationTypeLabel(src.publication_type)} · FY ${fmtFy(src.covers_fiscal_year)}` }),
       el("h2", { text: src.publication_title }),
       el("div", { class: "sub" },
-        model.entityByName.has(src.receiving_entity)
-          ? entityFilterLink(src.receiving_entity)
+        state.view === "sources" || model.entityByName.has(src.receiving_entity)
+          ? entityFilterLink(src.receiving_entity, true)
           : src.receiving_entity,
         ` · ${fmtInt(src._pages || 0)} pages · ${fmtBytes(src._bytes)}`)),
     ensureViewer() && viewerRoot,
