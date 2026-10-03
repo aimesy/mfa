@@ -292,22 +292,15 @@ function aboutPage(summary) {
 <p class="lede">The ${esc(DB_NAME)} holds the impact fee collections that California cities, counties, school districts, special districts and other local agencies reported, each figure shown on the page of the report it was read from. Every published figure was read from the original report, outlined on the page it sits on, checked against the source’s own arithmetic, and reviewed twice before release.</p>
 <p class="open"><a class="button" href="${SITE}/">Open the database</a></p>
 <h2>Coverage</h2>
-<p>The current release holds ${fmtInt(summary.figures)} published figures from ${fmtInt(summary.jurisdictions.length)} jurisdictions, read from ${fmtInt(summary.reports)} reports, for ${span}. Coverage differs by agency and year. A program year with no figure stays empty, and a zero appears only where the report prints one.</p>
-<p>These are amounts the agencies reported collecting. Names appear as the source prints them. Some rows are not Mitigation Fee Act fees: Quimby Act park in lieu accounts and section 66013 capacity charges appear where the agency reported them beside its impact fees, and each such row says so.</p>
-<h2>How each figure is checked</h2>
+<p>The current release holds ${fmtInt(summary.figures)} published figures from ${fmtInt(summary.jurisdictions.length)} jurisdictions, read from ${fmtInt(summary.reports)} reports, for ${span}. Coverage differs by agency and year.</p>
+<p>Quimby Act park in lieu accounts and section 66013 capacity charges are included, although they do not fall under the Mitigation Fee Act.</p>
+<h2>Data Layers</h2>
 <ul>
-<li>Opening a figure in the database shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page.</li>
-<li>Each evidence file and original report is hashed in the browser (SHA-256) and compared with the hash the release records.</li>
-<li>A box is drawn around a figure only after the viewer confirms it sits on the red outline in that figure’s own evidence file. Where it does not, the viewer draws nothing and says why.</li>
-<li>A printed number recorded at two measure grains is shown once and added once.</li>
-</ul>
-<h2>What the database shows</h2>
-<ul>
-<li><strong>Jurisdictions.</strong> Each agency’s fees by fiscal year. Every cell opens its evidence, and a program year with no figure stays empty.</li>
-<li><strong>Fees.</strong> Each fee’s history, year by year, with the name the report printed and the page. An agency that renamed or renumbered a fund keeps one fee, labelled with every number it carried.</li>
-<li><strong>Sources.</strong> Each original report, with every published figure in it listed and boxed.</li>
-<li><strong>Figures.</strong> One row for each printed figure, to filter, search, sort and export.</li>
-<li><strong>Stats.</strong> Figures by fiscal year, fee category, jurisdiction type and land use.</li>
+<li><strong>Jurisdictions.</strong> All agency fees are sorted by fiscal year.</li>
+<li><strong>Fees.</strong> Each fee’s history, year by year.</li>
+<li><strong>Sources.</strong> Each original report, with its published figures.</li>
+<li><strong>Figures.</strong> Every printed figure, to search, filter and sort.</li>
+<li><strong>Stats.</strong> Figures by fiscal year, fee category and jurisdiction type.</li>
 </ul>
 <p>Every view is in the URL, so any figure, filter or page is a link.</p>
 <p class="foot-links"><a href="${SITE}/">Open the database</a> · <a href="/jurisdictions/">Jurisdictions by county</a> · <a href="${TERMS}">Terms of use</a></p>
