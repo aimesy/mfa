@@ -82,6 +82,7 @@ body.amyc-has-public-records-footer .app {
 .hdr { background: var(--paper); color: var(--ink); border-bottom: 1px solid var(--rule); flex: 0 0 auto; }
 .amyc-theme-bar a.live { color: var(--chrome-accent); text-decoration: none; }
 .amyc-theme-bar a.live:hover { text-decoration: underline; }
+.amyc-theme-bar a.live:not([href]):hover { text-decoration: none; }
 .entity-bar {
   display: flex;
   align-items: center;

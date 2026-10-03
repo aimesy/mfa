@@ -18,7 +18,69 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The data Worker at mfa-data.amyc.us (worker/, README "Data Worker"). The
+  # Pages deploy waits for it, so a failed Worker deploy leaves the current
+  # site live.
+  release-worker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test the data Worker
+        run: node tests/worker.test.mjs
+      - name: Check the deploy secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
+          MFA_DATA_ACCESS: ${{ secrets.MFA_DATA_ACCESS }}
+        run: |
+          missing=0
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "::error::The CLOUDFLARE_API_KEY secret is empty."; missing=1; fi
+          if [ -z "$MFA_DATA_ACCESS" ]; then echo "::error::The MFA_DATA_ACCESS secret is empty."; missing=1; fi
+          exit "$missing"
+      - name: Deploy the Worker with its GitHub token
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
+          MFA_DATA_ACCESS: ${{ secrets.MFA_DATA_ACCESS }}
+        # The token reaches Wrangler in a private temporary file, never on a
+        # command line or in the log, and is uploaded with this version as the
+        # Worker secret MFA_DATA_TOKEN.
+        run: |
+          secrets="$RUNNER_TEMP/worker-secrets.env"
+          trap 'rm -f "$secrets"' EXIT
+          umask 077
+          printf 'MFA_DATA_TOKEN=%s\n' "$MFA_DATA_ACCESS" > "$secrets"
+          npx --yes wrangler@4 deploy --secrets-file "$secrets"
+      - name: Check the live Worker
+        # Retries while the custom domain's certificate is issued on the first deploy.
+        run: |
+          base=https://mfa-data.amyc.us
+          sha=""
+          for i in $(seq 1 36); do
+            sha=$(curl -sS --max-time 20 -H "Origin: https://mfa.amyc.us" "$base/ref" || true)
+            if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then break; fi
+            echo "attempt $i: /ref not ready yet"
+            sleep 10
+          done
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then echo "::error::$base/ref did not return a commit."; exit 1; fi
+          echo "main is at $sha"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -H "Origin: https://mfa.amyc.us" "$base/$sha/manifest.json")
+          if [ "$code" != 200 ]; then echo "::error::$base/$sha/manifest.json answered $code with the site's Origin."; exit 1; fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "$base/$sha/manifest.json")
+          if [ "$code" != 403 ]; then echo "::error::$base/$sha/manifest.json answered $code without Origin or Referer; expected 403."; exit 1; fi
+          curl -sS --max-time 60 -H "Origin: https://mfa.amyc.us" -o "$RUNNER_TEMP/sources.csv" "$base/$sha/sources/index.csv"
+          asset=$(grep -o -m1 'https://github.com/aimesy/mfa-data/releases/download/[A-Za-z0-9._-]*/[A-Za-z0-9._-]*\.pdf' "$RUNNER_TEMP/sources.csv" || true)
+          if [ -z "$asset" ]; then echo "::error::sources/index.csv lists no release asset."; exit 1; fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 120 -r 0-1023 -H "Origin: https://mfa.amyc.us" "$base/${asset#https://github.com/aimesy/mfa-data/}")
+          if [ "$code" != 206 ] && [ "$code" != 200 ]; then echo "::error::Release asset ${asset##*/} answered $code."; exit 1; fi
+          echo "The Worker serves the release and its assets to the site and refuses other callers."
+
   deploy:
+    needs: release-worker
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

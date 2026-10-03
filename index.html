@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' https://aimesy.github.io; style-src 'self' 'unsafe-inline' https://aimesy.github.io; font-src 'self' https://cdn.jsdelivr.net data:; connect-src 'self' https://raw.githubusercontent.com https://api.github.com; img-src 'self' data: blob:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
+      content="default-src 'self'; script-src 'self' https://aimesy.github.io; style-src 'self' 'unsafe-inline' https://aimesy.github.io; font-src 'self' https://cdn.jsdelivr.net data:; connect-src 'self' https://mfa-data.amyc.us; img-src 'self' data: blob:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
     <title>California Impact Fee Collections</title>
     <meta name="description" content="Every published figure in the mfa-data release, with the page it was read from, its outline and its caveats." />
     <meta name="theme-color" content="#24211d" />
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="vendor/noto-emoji/noto-emoji.css" />
-    <link rel="stylesheet" href="styles.css?v=20261001-5" />
+    <link rel="stylesheet" href="styles.css?v=20261003-1" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/theme.css" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/theme-bar.css" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/bug-report.css" />
@@ -29,7 +29,7 @@
           <span class="dot hide-narrow">.</span>
           <span class="hide-narrow">California</span>
           <span class="grow"></span>
-          <a class="live" id="release-label" href="https://github.com/aimesy/mfa-data" target="_blank" rel="noopener">release</a>
+          <a class="live" id="release-label">release</a>
           <button class="bug-report-trigger" type="button" data-bug-report data-bug-report-app="MFA" data-bug-report-repo="aimesy/mfa" data-bug-report-labels="bug,site-report" aria-label="Report a bug" title="Report a bug">
             <svg class="bug-report-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 8h8v8.5a4 4 0 0 1-8 0V8Z"></path>
@@ -60,7 +60,7 @@
           </div>
           <div class="hdr-right">
             <button class="hbtn" id="export-btn" type="button" title="Download this view (primary rows) as CSV" hidden>CSV</button>
-            <a class="hbtn" id="repo-link" href="https://github.com/aimesy/mfa-data" target="_blank" rel="noopener">GitHub</a>
+            <a class="hbtn" id="repo-link" href="https://github.com/aimesy/mfa" target="_blank" rel="noopener">GitHub</a>
             <a class="hbtn" id="terms-link" href="https://amyc.us/terms" target="_blank" rel="noopener">T&amp;Cs</a>
           </div>
         </div>
@@ -97,6 +97,6 @@
 
     <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
-    <script type="module" src="app.js?v=20261001-5"></script>
+    <script type="module" src="app.js?v=20261003-1"></script>
   </body>
 </html>

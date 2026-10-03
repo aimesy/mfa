@@ -1,7 +1,7 @@
 # MFA viewer repository instructions
 
 - This repository contains the public static viewer for the `aimesy/mfa-data` release of California impact fee collections.
-- Keep release files out of this repo. The viewer reads the CSV, `sources/index.csv`, `manifest.json`, evidence PDFs and reports from `raw.githubusercontent.com/aimesy/mfa-data/<sha>/` at run time.
+- Keep release files out of this repo. `aimesy/mfa-data` is private: the viewer reads the CSV, `sources/index.csv` and `manifest.json` at run time through the Cloudflare Worker at `https://mfa-data.amyc.us/<sha>/` (source in `worker/`, described in the README), and the evidence PDFs and reports, which are release assets, from the same Worker at `/releases/download/<tag>/<name>`. The Worker holds a GitHub token that can read that repository's contents and nothing else. Never put a token in this repo or in the page. The Worker's default entrypoint (origin check and rate limit) must stay uncached; only `Release` is cached. `check-static.mjs` fails if the viewer reaches GitHub directly or if the Worker's `RELEASE_PATH` or `ASSET_PATH` differs from the viewer's.
 - Do not write to `aimesy/mfa-data` from here. Its release pipeline is the only writer to `main` and owns `manifest.json`, `validation/`, `README.md`, `docs/` and `data/`.
 - The shared theme loads live from `https://aimesy.github.io/themes/src/` (the test-gated Pages copy of `aimesy/themes`), so a theme merge reaches this site without a change here. Do not pin it to a commit or load it from jsDelivr; `check-static.mjs` requires each of the five assets in `index.html` exactly once from that URL.
 - Release text reaches the DOM through `textContent` or attributes only. `check-static.mjs` fails on `innerHTML` and similar calls.
@@ -10,4 +10,4 @@
 - Sum primary rows only (`is_primary_in_figure_group`). A missing program-year is missing, never zero.
 - `lib/fee-links.js` joins fee program names into one fee for display only. Add a link only with evidence from the reports (matching closing and opening balances, a reprint of the old figures, or a difference in wording alone) and record it; `tests/model.test.mjs` fails on a link the release no longer matches.
 - Draw a box from `outline_rect_pdf_points` only after it is confirmed against the red outline in that figure's evidence file; otherwise draw none and say why.
-- Run `node check-static.mjs` and `node tests/model.test.mjs` before pushing; `node tests/smoke.mjs` when the panel, loading or layout changes.
+- Run `node check-static.mjs`, `node tests/model.test.mjs` and `node tests/worker.test.mjs` before pushing; `node tests/smoke.mjs` when the panel, loading or layout changes.

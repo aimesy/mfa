@@ -1,6 +1,7 @@
 // mfa-data viewer. Reads the release's own files (the CSV, the source index
-// and, on demand, the manifest and evidence PDFs) straight from the
-// aimesy/mfa-data repository at one commit, and shows every published figure
+// and, on demand, the manifest and evidence PDFs) from the aimesy/mfa-data
+// repository at one commit, through the Worker at mfa-data.amyc.us (the
+// repository is private; see worker/), and shows every published figure
 // beside the page it was read from.
 //
 // Pattern follows aimesy/tentatives: static page, URL-driven state so any view
@@ -26,8 +27,10 @@ import { el, svg } from "./lib/dom.js";
 
 const REPO = "aimesy/mfa-data";
 const DEFAULT_BRANCH = "main";
-const RAW_ROOT = `https://raw.githubusercontent.com/${REPO}/`;
-const GITHUB_ROOT = `https://github.com/${REPO}/`;
+// The release Worker (worker/): /<ref>/<path> mirrors the repository's raw
+// files, /releases/download/<tag>/<name> its release assets, and /ref answers
+// the commit at main.
+const DATA_ROOT = "https://mfa-data.amyc.us/";
 const VIEWS = ["entities", "fees", "sources", "figures", "stats"];
 const DEFAULT_VIEW = "entities";
 const PAGE_SIZES = [50, 100, 250, 500];
@@ -36,6 +39,10 @@ const DEFAULT_ENTITY_SORT = { col: "sum", dir: "desc" };
 const DEFAULT_SOURCE_SORT = { col: "agency", dir: "asc" };
 const DEFAULT_FEE_SORT = { col: "entity", dir: "asc" };
 const RELEASE_PATH = /^(?:(?:sources|evidence|data|docs)\/[A-Za-z0-9._\/-]+|manifest\.json|README\.md)$/;
+// The release's PDFs are GitHub release assets, which the CSVs list by their
+// download URL; the Worker serves them at the same path. Not tied to a commit.
+const ASSET_URL_ROOT = `https://github.com/${REPO}/`;
+const ASSET_PATH = /^releases\/download\/([A-Za-z0-9._-]{1,100})\/([A-Za-z0-9._-]{1,200}\.pdf)$/;
 
 const $ = (id) => document.getElementById(id);
 
@@ -58,10 +65,7 @@ async function resolveRef() {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(`https://api.github.com/repos/${REPO}/commits/${DEFAULT_BRANCH}`, {
-      headers: { Accept: "application/vnd.github.sha" },
-      signal: ctrl.signal,
-    });
+    const res = await fetch(`${DATA_ROOT}ref`, { signal: ctrl.signal });
     clearTimeout(timer);
     const sha = (await res.text()).trim();
     if (res.ok && /^[0-9a-f]{40}$/.test(sha)) {
@@ -69,28 +73,25 @@ async function resolveRef() {
       return;
     }
   } catch {
-    // Rate limited or offline: fall back to the branch head.
+    // Offline or timed out: fall back to the branch head.
   }
   cfg.ref = DEFAULT_BRANCH;
 }
 
 function safePath(path) {
-  return typeof path === "string" && RELEASE_PATH.test(path) && !path.includes("..") ? path : null;
+  if (typeof path !== "string" || path.includes("..")) return null;
+  if (path.startsWith(ASSET_URL_ROOT)) {
+    const asset = path.slice(ASSET_URL_ROOT.length);
+    return ASSET_PATH.test(asset) ? asset : null;
+  }
+  return RELEASE_PATH.test(path) ? path : null;
 }
 
 function dataUrl(path) {
   const p = safePath(path);
   if (!p) return null;
-  return cfg.local ? new URL(p, cfg.base).href : `${RAW_ROOT}${cfg.ref}/${p}`;
-}
-
-function githubRef() {
-  return !cfg.local && cfg.ref ? cfg.ref : DEFAULT_BRANCH;
-}
-
-function blobUrl(path) {
-  const p = safePath(path);
-  return p ? `${GITHUB_ROOT}blob/${githubRef()}/${p}` : null;
+  if (cfg.local) return new URL(p, cfg.base).href;
+  return ASSET_PATH.test(p) ? `${DATA_ROOT}${p}` : `${DATA_ROOT}${cfg.ref}/${p}`;
 }
 
 // Same-page link that keeps the data source (?data= or a pinned ?ref=).
@@ -344,11 +345,11 @@ function renderReleaseLabel() {
     a.removeAttribute("href");
     return;
   }
+  // The release repository is private, so the commit is shown as text.
   const short = /^[0-9a-f]{40}$/.test(cfg.ref) ? cfg.ref.slice(0, 7) : cfg.ref;
   a.textContent = `release @ ${short}`;
-  a.href = /^[0-9a-f]{40}$/.test(cfg.ref) ? `${GITHUB_ROOT}commit/${cfg.ref}` : `${GITHUB_ROOT}tree/${cfg.ref}`;
+  a.removeAttribute("href");
   a.title = `${REPO} @ ${cfg.ref}`;
-  $("repo-link").href = `${GITHUB_ROOT}tree/${githubRef()}`;
 }
 
 function renderStats() {
@@ -1397,7 +1398,7 @@ function fillStats() {
   const slot = $("stats-release");
   if (!slot || !statsData) return;
   const { cohort, refusals, manifest, tables } = statsData;
-  const doc = (path, label) => el("a", { href: blobUrl(path), target: "_blank", rel: "noopener", text: label });
+  const doc = (path, label) => el("a", { href: dataUrl(path), target: "_blank", rel: "noopener", text: label });
   const kv = (k, v) => el("tr", {}, el("th", { scope: "row", text: k }), el("td", { class: "num", text: v }));
   const links = (k, ...items) => el("tr", {}, el("th", { scope: "row", text: k }),
     el("td", {}, items.flatMap((a, i) => (i ? [" · ", a] : [a]))));
@@ -1695,8 +1696,8 @@ function evTab(tab, label, title) {
 }
 
 function fileLink(path, label) {
-  const href = blobUrl(path);
-  return href ? el("a", { href, target: "_blank", rel: "noopener", title: `${path} on GitHub`, text: `${label} ↗` }) : null;
+  const href = dataUrl(path);
+  return href ? el("a", { href, target: "_blank", rel: "noopener", title: path, text: `${label} ↗` }) : null;
 }
 
 async function showFigureEvidence(fig) {

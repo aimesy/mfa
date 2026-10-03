@@ -36,7 +36,7 @@ const csp = /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(inde
 assert.ok(csp, "Content-Security-Policy meta is missing");
 assert.match(csp, /script-src 'self' https:\/\/aimesy\.github\.io;/, "scripts must be same-origin or the shared theme host");
 assert.match(csp, /style-src [^;]*https:\/\/aimesy\.github\.io[ ;]/, "styles must allow the shared theme host");
-assert.match(csp, /connect-src 'self' https:\/\/raw\.githubusercontent\.com https:\/\/api\.github\.com;/, "data may come only from the release host");
+assert.match(csp, /connect-src 'self' https:\/\/mfa-data\.amyc\.us;/, "data may come only from the release Worker");
 assert.match(csp, /object-src 'none'/);
 assert.doesNotMatch(csp, /unsafe-eval/, "no eval");
 
@@ -54,8 +54,19 @@ for (const f of ["pdf.min.mjs", "pdf.worker.min.mjs", "LICENSE", "standard_fonts
 assert.match(evidence, /isEvalSupported: false/);
 
 // The data rules the release states.
-assert.match(app, /raw\.githubusercontent\.com\/\$\{REPO\}\//, "viewer must read the release from GitHub");
+// The release repository is private: the viewer reads it only through the
+// Worker in worker/, which serves the same paths the viewer may ask for.
+assert.match(app, /const DATA_ROOT = "https:\/\/mfa-data\.amyc\.us\/";/, "viewer must read the release through the mfa-data Worker");
+for (const [name, src] of Object.entries({ "index.html": index, "app.js": app, ...libs })) {
+  assert.doesNotMatch(src, /raw\.githubusercontent\.com|api\.github\.com|github\.com\/aimesy\/mfa-data/, `${name} must not reach the private release on GitHub directly`);
+}
 assert.match(app, /const REPO = "aimesy\/mfa-data";/);
+const worker = read("./worker/release.js");
+const regexOf = (src, name) => new RegExp(`const ${name} = (\\/.+\\/);`).exec(src)?.[1];
+for (const name of ["RELEASE_PATH", "ASSET_PATH"]) {
+  assert.ok(regexOf(app, name), `app.js must define ${name}`);
+  assert.equal(regexOf(worker, name), regexOf(app, name), `worker/release.js must allow exactly the ${name} values app.js asks for`);
+}
 assert.match(model, /is_primary_in_figure_group === TRUE/, "sums must come from primary rows only");
 assert.match(app, /mx-empty/, "the jurisdiction matrix must mark missing cells as missing");
 assert.match(evidence, /sha256Hex/, "evidence files must be hash-checked");
