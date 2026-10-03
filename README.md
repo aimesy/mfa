@@ -109,6 +109,8 @@ Secrets, in this repository's Actions secrets:
 
 The Worker runs on Cloudflare's free plan: 100,000 requests a day, and each file the viewer reads counts twice (the default entrypoint, then `Release`). Past the daily limit Cloudflare answers error 1027 until the next day; nothing is billed.
 
+After each deploy the workflow checks the live Worker from the runner. Bot Fight Mode on `amyc.us` answers GitHub's runners with a challenge before the Worker runs; the check then warns that it could not reach the Worker, and the Pages deploy goes ahead.
+
 In local mode (`?data=`) the viewer reads assets from `releases/download/<tag>/<name>` under the local path.
 
 To run it locally, put `MFA_DATA_TOKEN=<token>` in `worker/.dev.vars` (git ignores it), run `npx wrangler@4 dev` in `worker/`, and point the viewer's `DATA_ROOT` at the address it prints.

@@ -58,16 +58,24 @@ jobs:
       - name: Check the live Worker
         # Retries while the custom domain's DNS record and certificate appear on
         # the first deploy. DNS goes over HTTPS so a lookup cached before the
-        # record existed cannot stall the check.
+        # record existed cannot stall the check. Bot Fight Mode on amyc.us
+        # challenges GitHub's runners before the Worker runs; a challenge means
+        # the Worker cannot be checked from here, so it warns and lets the
+        # deploy continue instead of failing.
         run: |
           base=https://mfa-data.amyc.us
           body="$RUNNER_TEMP/body"
-          get() { curl -sS --max-time 120 --doh-url https://cloudflare-dns.com/dns-query -o "$body" -w '%{http_code}' "$@" || echo 000; }
+          head="$RUNNER_TEMP/headers"
+          get() { curl -sS --max-time 120 --doh-url https://cloudflare-dns.com/dns-query -D "$head" -o "$body" -w '%{http_code}' "$@" || echo 000; }
           sha=""
           for i in $(seq 1 36); do
             code=$(get -H "Origin: https://mfa.amyc.us" "$base/ref")
             sha=$(cat "$body" 2>/dev/null || true)
             if [ "$code" = 200 ] && [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then break; fi
+            if [ "$code" = 403 ] && grep -qi '^cf-mitigated: *challenge' "$head" 2>/dev/null; then
+              echo "::warning::Cloudflare challenged this runner (Bot Fight Mode), so the Worker cannot be checked from GitHub. Check it from a browser."
+              exit 0
+            fi
             echo "attempt $i: /ref answered $code: $(head -c 160 "$body" 2>/dev/null | tr -d '\r\n')"
             sha=""
             sleep 10
