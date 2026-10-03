@@ -143,6 +143,7 @@ const state = {
 let model = null;
 let columns = [];
 let manifestPromise = null;
+let evidenceHashPromise = null;
 let figuresByPage = new Map();
 let listCache = { key: "", list: [] };
 let panelList = [];
@@ -293,6 +294,31 @@ function ensureManifest() {
     manifestPromise.catch(() => { manifestPromise = null; });
   }
   return manifestPromise;
+}
+
+// The manifest lists the repository's files. The evidence PDFs are release
+// assets, so their hashes come from evidence/index.json.
+function ensureEvidenceHashes() {
+  if (!evidenceHashPromise) {
+    evidenceHashPromise = fetchJson("evidence/index.json").then((rows) => {
+      const hashes = new Map();
+      for (const r of Array.isArray(rows) ? rows : []) {
+        if (r.outlined_figure_pdf && r.outlined_figure_sha256) hashes.set(r.outlined_figure_pdf, r.outlined_figure_sha256);
+        if (r.page_extract_pdf && r.page_extract_sha256) hashes.set(r.page_extract_pdf, r.page_extract_sha256);
+      }
+      return hashes;
+    });
+    evidenceHashPromise.catch(() => { evidenceHashPromise = null; });
+  }
+  return evidenceHashPromise;
+}
+
+// Resolves to meta(path): what the release records about a file (its sha256,
+// and bytes when the manifest lists it), or null. Never rejects; a file whose
+// record could not be read is shown with the hash check reporting so.
+function ensureFileMeta() {
+  return Promise.all([ensureManifest().catch(() => null), ensureEvidenceHashes().catch(() => null)])
+    .then(([m, hashes]) => (path) => m?.files.get(path) || (hashes?.has(path) ? { path, sha256: hashes.get(path) } : null));
 }
 
 async function boot() {
@@ -1703,14 +1729,9 @@ function fileLink(path, label) {
 async function showFigureEvidence(fig) {
   const p = fig.primary;
   const v = ensureViewer();
-  let manifest = null;
-  try {
-    manifest = await ensureManifest();
-  } catch {
-    // The page can still render; the hash check reports what it could not do.
-  }
+  // The page renders either way; the hash check reports what it could not do.
+  const meta = await ensureFileMeta();
   if (state.figure !== fig.id) return;
-  const meta = (path) => manifest?.files.get(path) || null;
   if (state.tab === "outlined") {
     const m = meta(p.outlined_figure_pdf);
     v.show({
@@ -1745,9 +1766,9 @@ async function showFigureEvidence(fig) {
 // evidence file before the viewer draws a box from it (see checkOutline).
 function verifyOutline(fig) {
   const p = fig.primary;
-  return ensureManifest().catch(() => null).then((m) => {
-    const meta = m?.files.get(p.outlined_figure_pdf);
-    return checkOutline(dataUrl(p.outlined_figure_pdf), p._rects, { sha256: meta?.sha256, bytes: meta?.bytes });
+  return ensureFileMeta().then((meta) => {
+    const m = meta(p.outlined_figure_pdf);
+    return checkOutline(dataUrl(p.outlined_figure_pdf), p._rects, { sha256: m?.sha256, bytes: m?.bytes });
   });
 }
 
@@ -1796,10 +1817,10 @@ function arithmeticContext(fig, page) {
 const PAGE_WAIT_MS = 8000;
 function pageFor(fig) {
   const p = fig.primary;
-  return ensureManifest().catch(() => null)
-    .then((m) => {
-      const meta = m?.files.get(p.outlined_figure_pdf);
-      const read = readPageText(dataUrl(p.outlined_figure_pdf), { sha256: meta?.sha256, bytes: meta?.bytes });
+  return ensureFileMeta()
+    .then((meta) => {
+      const m = meta(p.outlined_figure_pdf);
+      const read = readPageText(dataUrl(p.outlined_figure_pdf), { sha256: m?.sha256, bytes: m?.bytes });
       return Promise.race([read, new Promise((resolve) => setTimeout(resolve, PAGE_WAIT_MS, null))]);
     })
     .then((items) => {
