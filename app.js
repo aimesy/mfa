@@ -74,6 +74,22 @@ let pendingCheck = null;
 const MAX_CHECKS = 2;
 let failedChecks = 0;
 const CHECK_REFUSED = "Cloudflare could not confirm that a person is using this browser. Reload to try again, or try another browser.";
+// The Worker asks for a visible check (X-Check: visible) after a batch of
+// files, after files opened too fast, or after repeated trips from one
+// address. The widget is then shown and carries this action.
+const VISIBLE_ACTION = "visible";
+let checkVisible = false;
+// A trusted key arrives once in the fragment (#key=...), so it never reaches
+// a server log or a Referer; it is taken out of the address bar at once and
+// sent with the next check.
+let trustedKey = takeTrustedKey();
+
+function takeTrustedKey() {
+  const m = /(?:^#|&)key=([A-Za-z0-9_-]{32,128})(?:&|$)/.exec(location.hash);
+  if (!m) return "";
+  history.replaceState(history.state, "", `${location.pathname}${location.search}`);
+  return m[1];
+}
 
 function turnstileReady(timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
@@ -88,8 +104,9 @@ function turnstileReady(timeoutMs = 20000) {
 }
 
 // One Turnstile token. The widget stays invisible unless Cloudflare wants an
-// interaction, and then it appears over the page.
-function humanCheckToken() {
+// interaction, and then it appears over the page; `visible` shows it from
+// the start (appearance "always").
+function humanCheckToken(visible = false) {
   return turnstileReady().then((ts) => new Promise((resolve, reject) => {
     const box = $("human-check");
     const show = (on) => {
@@ -100,9 +117,9 @@ function humanCheckToken() {
     pendingCheck?.(new Error("The human check was restarted."));
     pendingCheck = reject;
     if (widgetId !== null) ts.remove(widgetId);
-    widgetId = ts.render("#human-check-widget", {
+    const options = {
       sitekey: TURNSTILE_SITEKEY,
-      appearance: "interaction-only",
+      appearance: visible ? "always" : "interaction-only",
       retry: "never",
       callback: (token) => { show(false); resolve(token); },
       "error-callback": (code) => {
@@ -111,27 +128,51 @@ function humanCheckToken() {
         return true;
       },
       "before-interactive-callback": () => show(true),
-    });
+    };
+    if (visible) options.action = VISIBLE_ACTION;
+    widgetId = ts.render("#human-check-widget", options);
+    if (visible) show(true);
   }));
+}
+
+// The Worker's own words for a refusal (a limit, a failed check), shown to
+// the reader as sent.
+class WorkerRefusal extends Error {}
+async function refusal(res, fallback) {
+  const text = (await res.text().catch(() => "")).trim();
+  return new WorkerRefusal(text || fallback);
 }
 
 function startSession() {
   if (failedChecks >= MAX_CHECKS) return Promise.reject(new Error(CHECK_REFUSED));
-  return humanCheckToken()
-    .then((token) => fetch(`${DATA_ROOT}session`, {
+  const attempt = async (visible) => {
+    const token = await humanCheckToken(visible);
+    const res = await fetch(`${DATA_ROOT}session`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "text/plain" },
-      body: token,
-    }))
-    .then(async (res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status} starting a session: ${(await res.text()).trim()}`);
-    })
-    .catch((err) => {
-      failedChecks += 1;
-      console.warn("human check", err);
-      throw failedChecks >= MAX_CHECKS ? new Error(CHECK_REFUSED) : err;
+      body: trustedKey ? JSON.stringify({ token, key: trustedKey }) : token,
     });
+    if (res.ok) {
+      if (res.headers.get("X-Trusted-Key") === "refused") console.warn("The trusted key in this link was not recognized.");
+      trustedKey = "";
+      checkVisible = false;
+      return;
+    }
+    if (res.status === 401 && res.headers.get("X-Check") === "visible" && !visible) {
+      checkVisible = true;
+      return attempt(true);
+    }
+    if (res.headers.get("X-Check") === "visible") checkVisible = true;
+    throw await refusal(res, `HTTP ${res.status} starting a session`);
+  };
+  return attempt(checkVisible).catch((err) => {
+    // A limit is the Worker's answer, not a failed check.
+    if (err instanceof WorkerRefusal && !/^Human check failed/.test(err.message)) throw err;
+    failedChecks += 1;
+    console.warn("human check", err);
+    throw failedChecks >= MAX_CHECKS ? new Error(CHECK_REFUSED) : err;
+  });
 }
 
 // The session cookie for the data Worker; `fresh` starts a new one (one at a
@@ -154,14 +195,21 @@ function ensureSession(fresh = false) {
 }
 
 // fetch() for release files: with the session cookie, and once more after a
-// fresh human check when the Worker asks for one (401).
+// fresh human check when the Worker asks for one (401; visible when it says
+// X-Check: visible). A refusal (401 again, 403, 429) throws the Worker's own
+// message.
 async function dataFetch(url, init = {}) {
   if (cfg.local) return fetch(url, init);
   await ensureSession().catch(() => {});
   let res = await fetch(url, { ...init, credentials: "include" });
   if (res.status === 401) {
+    if (res.headers.get("X-Check") === "visible") checkVisible = true;
     await ensureSession(true);
     res = await fetch(url, { ...init, credentials: "include" });
+  }
+  if (res.status === 401 || res.status === 403 || res.status === 429) {
+    if (res.headers.get("X-Check") === "visible") checkVisible = true;
+    throw await refusal(res, `HTTP ${res.status} reading ${url}`);
   }
   return res;
 }

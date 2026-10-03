@@ -107,7 +107,11 @@ jobs:
             if [ "$code" = 401 ] && grep -qi '^x-mfa-session:' "$head"; then
               code=$(get "$base/ref")
               if [ "$code" != 403 ]; then echo "::error::$base/ref answered $code without Origin or Referer; expected 403."; exit 1; fi
-              echo "The Worker is up and requires a session, so the release files cannot be checked from here."
+              # A token Turnstile rejects proves the Worker holds the secret
+              # (403) rather than lacking it (503); it starts no session.
+              code=$(get -X POST -H "Origin: https://mfa.amyc.us" -H "Content-Type: text/plain" --data "not-a-token" "$base/session")
+              if [ "$code" != 403 ] || ! grep -q '^Human check failed' "$body"; then echo "::error::$base/session answered $code to a bad token: $(head -c 160 "$body" | tr -d '\r\n'); expected 403 Human check failed."; exit 1; fi
+              echo "The Worker is up, requires a session and checks Turnstile, so the release files cannot be checked from here."
               exit 0
             fi
             if [ "$code" = 403 ] && grep -qi '^cf-mitigated: *challenge' "$head" 2>/dev/null; then

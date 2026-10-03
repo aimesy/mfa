@@ -1,7 +1,8 @@
-// Entrypoints for the mfa-data Worker; the logic is in release.js.
+// Entrypoints for the mfa-data Worker; the logic is in release.js and gate.js.
 
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { applyQuota, handleGateway, handleRelease } from "./release.js";
+import { handleGateway, handleRelease } from "./release.js";
+import { durableCounters, quotaMethods, storeAlarm } from "./gate.js";
 
 // Cached (wrangler.toml [exports.Release.cache]): one file from GitHub.
 export class Release extends WorkerEntrypoint {
@@ -18,22 +19,33 @@ export class Release extends WorkerEntrypoint {
   }
 }
 
-// The daily cap for one address (one object per address, named by it).
+// The document counters (gate.js): one object per browser ID ("b:<id>") and
+// one per address ("a:<address>"). The class keeps the name it had when it
+// held the old daily cap for each address; those older objects, named by the
+// bare address, are no longer read.
 export class DailyQuota extends DurableObject {
-  async take(day, units, limit) {
-    const { ok, record } = applyQuota(await this.ctx.storage.get("count"), day, units, limit);
-    if (ok) await this.ctx.storage.put("count", record);
-    return { ok, used: record.used };
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.methods = quotaMethods(ctx.storage);
   }
+  doc(args) { return this.methods.doc(args); }
+  refund(args) { return this.methods.refund(args); }
+  status(args) { return this.methods.status(args); }
+  browserSession(args) { return this.methods.browserSession(args); }
+  addressSession(args) { return this.methods.addressSession(args); }
+  sessionGate(args) { return this.methods.sessionGate(args); }
+  trip(args) { return this.methods.trip(args); }
+  alarm() { return storeAlarm(this.ctx.storage); }
 }
 
-// Not cached (wrangler.toml [exports.default.cache]): origin check, session
-// check and limits, then the cached Release entrypoint through ctx.exports.
+// Not cached (wrangler.toml [exports.default.cache]): origin check, flood
+// guard, session check and document limits, then the cached Release
+// entrypoint through ctx.exports.
 export default {
   fetch(request, env, ctx) {
     return handleGateway(request, env, {
       release: (req) => ctx.exports.Release.fetch(req),
-      quota: (address, day, units, limit) => env.DAILY_QUOTA.get(env.DAILY_QUOTA.idFromName(address)).take(day, units, limit),
+      counters: durableCounters(env.DAILY_QUOTA),
     });
   },
 };
