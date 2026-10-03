@@ -39,13 +39,14 @@ function counter(limitOverride) {
 }
 
 // Gateway with a stub Release entrypoint that records what it was sent.
+const logged = [];
 async function gateway(path, { method = "GET", headers = {}, body, e = env(), reply, quota, fetchImpl, now } = {}) {
   const sent = [];
   const release = async (req) => {
     sent.push(req);
     return reply ? reply(req) : new Response("body", { headers: { "Content-Type": "application/pdf", "Cache-Control": "public, max-age=31536000, immutable" } });
   };
-  const res = await handleGateway(new Request(`${BASE}${path}`, { method, headers, body }), e, { release, quota, fetchImpl, now });
+  const res = await handleGateway(new Request(`${BASE}${path}`, { method, headers, body }), e, { release, quota, fetchImpl, now, log: (line) => logged.push(line) });
   return { res, sent };
 }
 
@@ -509,6 +510,14 @@ const TAGGED = "/releases/download/pdf-napa-001/american-canyon__evidence__outli
   const { res, calls } = await release("/session");
   assert.equal(res.status, 404);
   assert.equal(calls.length, 0);
+}
+
+// Each data request is logged with its kind and session state, never an address.
+{
+  logged.length = 0;
+  await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE, "CF-Connecting-IP": "203.0.113.50" } });
+  assert.deepEqual(JSON.parse(logged.at(-1)), { kind: "file", slice: false, session: "missing" });
+  assert.ok(logged.every((line) => !line.includes("203.0.113.50")));
 }
 
 console.log("worker tests passed");

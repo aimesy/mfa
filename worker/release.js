@@ -256,8 +256,9 @@ async function startSession(request, env, ip, address, cors, fetchImpl, now) {
 // Default export. `release(request)` calls the cached Release entrypoint
 // (ctx.exports.Release.fetch in index.js; a stub in the tests).
 // `quota(address, day, units, limit)` charges the daily cap (the DailyQuota
-// Durable Object in index.js) and answers { ok }.
-export async function handleGateway(request, env, { release, quota, fetchImpl = fetch, now = Date.now() } = {}) {
+// Durable Object in index.js) and answers { ok }. `log` gets one line for each
+// data request (Workers Logs): its kind and session state, never an address.
+export async function handleGateway(request, env, { release, quota, fetchImpl = fetch, now = Date.now(), log = (line) => console.log(line) } = {}) {
   const url = new URL(request.url);
   const method = request.method;
 
@@ -305,6 +306,7 @@ export async function handleGateway(request, env, { release, quota, fetchImpl = 
   if (target.kind === "session") return startSession(request, env, ip, address, cors, fetchImpl, now);
 
   const session = await sessionState(request, env, address, now);
+  log(JSON.stringify({ kind: target.kind, slice: shape.slice, session }));
   if (session !== "ok" && env.REQUIRE_SESSION === "true") {
     return plain(401, "Open the database at https://mfa.amyc.us; it checks that a person is reading.\n", { ...cors, "X-MFA-Session": session });
   }

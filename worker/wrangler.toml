@@ -13,6 +13,12 @@ workers_dev = false
 preview_urls = false
 routes = [{ pattern = "mfa-data.amyc.us", custom_domain = true }]
 
+# Workers Logs (free plan: 200,000 events a day, kept 3 days). The gateway
+# logs each data request's kind and session state, never an address.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [vars]
 # Pages allowed to read the release, matched against Origin, or else the
 # origin of Referer. Separate with spaces.
