@@ -321,7 +321,6 @@ th.sort-desc .col-label::after { content: " ▾"; color: var(--ink); }
 
 .figures-grid { width: 100%; min-width: 960px; table-layout: fixed; }
 .figures-grid .col-entity { width: 17%; }
-.figures-grid .col-entity a, .fees-grid .col-entity a, .sources-grid .col-entity a { color: inherit; }
 .figures-grid .col-fy { width: 66px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .figures-grid .col-program { width: auto; }
 .figures-grid .col-cat { width: 11%; }
@@ -552,7 +551,6 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .panel-head { padding: 0.65rem 0.85rem 0.55rem; }
 .panel-head .kicker { font-family: var(--font-mono); font-size: 0.64rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; }
 .panel-head h2 { font-family: var(--font-serif); font-size: 1.15rem; line-height: 1.2; margin: 0.15rem 0 0.15rem; }
-.panel-head h2 a { color: var(--ink); }
 .panel-head .sub { font-size: 0.72rem; overflow-wrap: anywhere; }
 .amount-line { display: flex; align-items: baseline; gap: 0.3rem 0.8rem; flex-wrap: wrap; margin-top: 0.4rem; }
 .amount { font-size: 1.7rem; font-weight: 600; line-height: 1.1; color: var(--ink); }
