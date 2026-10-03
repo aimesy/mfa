@@ -27,7 +27,7 @@ The release claims that every figure was read from the original report, outlined
 - **Fees.** Each fee's history, year by year: what was collected, the name the report printed, and the page. An agency that renamed or renumbered a fund keeps one fee, labelled with every number it carried (Woodland's "Road Development Fund (Fund 582/1582)"). Each join is listed in `lib/fee-links.js` with its evidence (the old name's closing balance is the new name's opening balance, the new report reprints the old figures, or the names differ only in wording) and shown on the year the name changed. The release's rows are unchanged. A jurisdiction's name (in the table, or on an open figure) filters the list to its fees; clicked again, it opens the jurisdiction's page.
 - **Sources.** Each original report can be opened in the viewer, with every published figure in it listed and boxed. An agency's name (in the table, or on an open report or figure) filters the list to its reports, and the panel stays open; clicked again, it opens the jurisdiction's page.
 - **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. A jurisdiction's name filters the table to it; clicked again, it opens the jurisdiction's page. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked; **Go to document** opens that report with every figure published from it listed.
-- **Stats.** Figures by fiscal year, fee category, jurisdiction type and land use, each linking to the figures it counts; the cohort accounting, refusals by reason, row counts for each data table, and links to the downloads and method documents.
+- **Stats.** Figures by fiscal year, fee category, jurisdiction type and land use, each linking to the figures it counts; the cohort accounting, refusals by reason, row counts for each data table, and links to the method documents. The site offers no bulk downloads.
 
 Every view is in the URL, so any figure, filter or page is a link. **Cite** copies a citation with a link pinned to the release commit.
 
@@ -44,7 +44,7 @@ It follows `aimesy/tentatives` in layout: a chip toolbar, a table plus a detail 
 
 ## Data
 
-`aimesy/mfa-data` is private, so the site reads the release's own files through the data Worker at `https://mfa-data.amyc.us/<commit>/` (see [Data Worker](#data-worker)): the CSV, `sources/index.csv`, and on demand `manifest.json`. The evidence PDFs and the original reports are GitHub release assets, which the CSVs list by their `github.com/aimesy/mfa-data/releases/download/<tag>/<name>` URL; the viewer reads each from the Worker at the same path. It first asks the Worker's `/ref` for the commit at `main`, so every file comes from one release, and shows that commit in the header. If that fails it reads `main` itself.
+`aimesy/mfa-data` is private, so the site reads the release's own files through the data Worker at `https://mfa-data.amyc.us/<commit>/` (see [Data Worker](#data-worker)): the CSV, `sources/index.csv`, and on demand `manifest.json`. The evidence PDFs and the original reports are GitHub release assets, which the CSVs list by their `github.com/aimesy/mfa-data/releases/download/<tag>/<name>` URL; the viewer reads each from the Worker at the same path. It first asks the Worker's `/ref` for the commit at `main`, so every file comes from one release, and shows that commit in the header. If that fails it reads `main` itself. Before its first request it passes a Turnstile check (see [Data Worker](#data-worker)), which most readers never see.
 
 URL parameters:
 
@@ -86,6 +86,10 @@ The tests find the release through `MFA_DATA_ROOT`, or `../mfa-data` beside this
 
 The viewer was first staged under `site/` in `aimesy/mfa-data` (`8371df8`). It lives here so that the release pipeline stays the only writer to `aimesy/mfa-data`, which owns that repository's manifest and validation. Release 03 (`4d90bdd`) still carries a copy under `site/`; this repository is the one to change and deploy.
 
+## Search engines
+
+The viewer draws everything in the browser from the data Worker, which search engines cannot pass, so the deploy also writes static pages from the current release: `about/`, `jurisdictions/` (one page for each jurisdiction, with its fee programs and the years they cover, and no dollar amounts) and `sitemap.xml` (`seo/build.mjs`). A scheduled run of the workflow rebuilds them daily. `index.html` carries a short description and Dataset markup; `robots.txt` points to the sitemap.
+
 ## Data Worker
 
 `worker/` is a Cloudflare Worker on the custom domain `mfa-data.amyc.us`. It holds a GitHub token and serves the release to the viewer, because the repository is private, a token cannot be given to the browser, and the release (about 5 GB) is too large for Pages, which caps a site at 1 GB. Its URLs mirror `raw.githubusercontent.com`:
@@ -100,19 +104,26 @@ The viewer was first staged under `site/` in `aimesy/mfa-data` (`8371df8`). It l
 
 `<path>` must match the viewer's `RELEASE_PATH`, and an asset path its `ASSET_PATH` (`check-static.mjs` keeps each pair equal); anything else is a 404. GitHub serves a private repository's assets only through its API, so for an asset `Release` looks up the asset's id in the release's list (kept for ten minutes at the internal path `/_assets/<tag>`, which the default entrypoint never forwards), then fetches it from the signed URL the API redirects to, without the token.
 
-It has two entrypoints. The default one is uncached: it answers CORS preflights, refuses (403) any request whose `Origin`, or failing that `Referer`, is not listed in `ALLOWED_ORIGINS` in `worker/wrangler.toml`, and limits each IP address with the Workers Rate Limiting binding (300 requests a minute, also in `wrangler.toml`; a large report read by 256 KB ranges makes many requests). Over the limit it answers 429 with `Retry-After`. It then sends the cached `Release` entrypoint a fresh request built from the path and `Range` alone. `Release` fetches the file from GitHub with the token and returns it with its own content type, `ETag` and cache headers; Workers Caching stores it, and serves byte ranges from the stored copy. The default entrypoint must stay uncached, or a cache hit would skip the origin check and the rate limit.
+It has two entrypoints. The default one is uncached. It answers CORS preflights and refuses (403) any request whose `Origin`, or failing that `Referer`, is not listed in `ALLOWED_ORIGINS` in `worker/wrangler.toml`. Then it applies, for each address (an IPv4 address, or an IPv6 /64):
+
+- **A session.** The viewer runs Cloudflare Turnstile in Managed mode, shown only when Cloudflare wants an interaction, and posts the token to `/session`. The Worker checks it with Turnstile and sets a cookie for 12 hours, bound to the address. With `REQUIRE_SESSION = "true"` a data request without a valid session gets 401, and the viewer runs the check again; otherwise the state is only reported in `X-MFA-Session`.
+- **Limits a minute.** 50 files (requests without a byte range) and 600 slices (byte ranges up to 8 MB; the viewer reads big reports in 256 KB slices), with the Workers Rate Limiting binding. Over either it answers 429 with `Retry-After: 60`. Cloudflare keeps these counts on each of its machines, so they are a brake, not an exact count.
+- **A daily cap.** 1,000 files a day (`DAILY_FILE_LIMIT`), kept by the `DailyQuota` Durable Object, one for each address. Slices count by size, 4 MB as one file; `/ref` is free. Over the cap it answers 429 until midnight UTC. If the counter cannot be reached, requests go through.
+
+It then sends the cached `Release` entrypoint a fresh request built from the path and `Range` alone. `Release` fetches the file from GitHub with the token and returns it with its own content type, `ETag` and cache headers; Workers Caching stores it, and serves byte ranges from the stored copy. The default entrypoint must stay uncached, or a cache hit would skip the checks and the limits.
 
 Secrets, in this repository's Actions secrets:
 
 - `MFA_DATA_ACCESS`: a fine-grained GitHub token with read access to the contents of `aimesy/mfa-data` and nothing else. The workflow stores it as the Worker secret `MFA_DATA_TOKEN`.
+- `TURNSTILE_SECRET_KEY`: the secret key of the Turnstile widget "MFA viewer (mfa.amyc.us)"; its site key is in `app.js`. The workflow stores it as the Worker secret of the same name, with a new random `SESSION_KEY` on each deploy.
 - `CLOUDFLARE_API_KEY`: a Cloudflare API token from the "Edit Cloudflare Workers" template, limited to the account and the `amyc.us` zone (Workers Routes edit covers the custom domain). The workflow hands it to Wrangler as `CLOUDFLARE_API_TOKEN`.
 
-The Worker runs on Cloudflare's free plan: 100,000 requests a day, and each file the viewer reads counts twice (the default entrypoint, then `Release`). Past the daily limit Cloudflare answers error 1027 until the next day; nothing is billed.
+The Worker runs on Cloudflare's free plan: 100,000 requests a day, and each file the viewer reads counts twice (the default entrypoint, then `Release`). Past the daily limit Cloudflare answers error 1027 until the next day; nothing is billed. The daily cap's Durable Object has its own free allowance of 100,000 requests a day.
 
 After each deploy the workflow checks the live Worker from the runner. Bot Fight Mode on `amyc.us` answers GitHub's runners with a challenge before the Worker runs; the check then warns that it could not reach the Worker, and the Pages deploy goes ahead.
 
 In local mode (`?data=`) the viewer reads assets from `releases/download/<tag>/<name>` under the local path.
 
-To run it locally, put `MFA_DATA_TOKEN=<token>` in `worker/.dev.vars` (git ignores it), run `npx wrangler@4 dev` in `worker/`, and point the viewer's `DATA_ROOT` at the address it prints.
+To run it locally, put `MFA_DATA_TOKEN=<token>`, `SESSION_KEY=<any string>` and Turnstile's test secret `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA` in `worker/.dev.vars` (git ignores it), run `npx wrangler@4 dev` in `worker/`, and point the viewer's `DATA_ROOT` at the address it prints.
 
 Third-party code: pdf.js 4.10.38 (Apache-2.0) in `vendor/`, verified against the npm registry's integrity hash. Noto Emoji, the black-and-white face (SIL OFL 1.1), in `vendor/noto-emoji/`.

@@ -31,10 +31,13 @@ assert.equal((index.match(/\bdata-theme-toggle\b/g) || []).length, 1, "viewer mu
 assert.equal((index.match(/\bamyc-theme-bar\b/g) || []).length, 1, "viewer must contain exactly one shared theme bar");
 assert.match(index, /data-bug-report-repo="aimesy\/[a-z0-9-]+"/, "bug reporter must name a repository");
 
-// Page policy: same-origin scripts plus the theme host; data only from the release host.
+// Page policy: same-origin scripts plus the theme host and Turnstile; data only from the release Worker.
 const csp = /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(index)?.[1] || "";
 assert.ok(csp, "Content-Security-Policy meta is missing");
-assert.match(csp, /script-src 'self' https:\/\/aimesy\.github\.io;/, "scripts must be same-origin or the shared theme host");
+assert.match(csp, /script-src 'self' https:\/\/aimesy\.github\.io https:\/\/challenges\.cloudflare\.com;/, "scripts must be same-origin, the shared theme host or Turnstile");
+assert.match(csp, /frame-src https:\/\/challenges\.cloudflare\.com;/, "only Turnstile may be framed");
+assert.equal((index.match(/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js\?render=explicit/g) || []).length, 1, "Turnstile loads once, rendered by app.js");
+assert.match(app, /const TURNSTILE_SITEKEY = "0x[0-9A-Za-z_-]+";/, "app.js must name the Turnstile site key");
 assert.match(csp, /style-src [^;]*https:\/\/aimesy\.github\.io[ ;]/, "styles must allow the shared theme host");
 assert.match(csp, /connect-src 'self' https:\/\/mfa-data\.amyc\.us;/, "data may come only from the release Worker");
 assert.match(csp, /object-src 'none'/);
@@ -61,6 +64,9 @@ for (const [name, src] of Object.entries({ "index.html": index, "app.js": app, .
   assert.doesNotMatch(src, /raw\.githubusercontent\.com|api\.github\.com|github\.com\/aimesy\/mfa-data/, `${name} must not reach the private release on GitHub directly`);
 }
 assert.match(app, /const REPO = "aimesy\/mfa-data";/);
+assert.match(app, /credentials: "include"/, "release requests must carry the session cookie");
+assert.match(evidence, /dataFetch\(url/, "evidence PDFs must be fetched with the session");
+assert.doesNotMatch(app, /reported-fee-collections\.json|mfa-reviewed-collections\.xlsx|links\("Downloads"/, "no bulk download links");
 const worker = read("./worker/release.js");
 const regexOf = (src, name) => new RegExp(`const ${name} = (\\/.+\\/);`).exec(src)?.[1];
 for (const name of ["RELEASE_PATH", "ASSET_PATH"]) {

@@ -17,16 +17,36 @@ routes = [{ pattern = "mfa-data.amyc.us", custom_domain = true }]
 # Pages allowed to read the release, matched against Origin, or else the
 # origin of Referer. Separate with spaces.
 ALLOWED_ORIGINS = "https://mfa.amyc.us https://aimesy.github.io"
+# "true" refuses data requests that carry no session from the Turnstile check;
+# anything else serves them and only reports the state in X-MFA-Session.
+REQUIRE_SESSION = "false"
+# Files a day for each address (an IPv4 address or an IPv6 /64). Slices of
+# big reports count by size: every 4 MB is one file.
+DAILY_FILE_LIMIT = "1000"
 
-# Requests per IP address per period. period must be 10 or 60; if it changes,
-# change RETRY_AFTER_SECONDS in release.js to match.
+# Requests a minute for each address: files (no byte range) and slices (one
+# byte range of a big report). period must be 10 or 60; if it changes, change
+# RETRY_AFTER_SECONDS in release.js to match.
 [[ratelimits]]
-name = "RATE_LIMITER"
-namespace_id = "1001"
+name = "FILE_LIMITER"
+namespace_id = "1002"
 
   [ratelimits.simple]
-  limit = 300
+  limit = 50
   period = 60
+
+[[ratelimits]]
+name = "SLICE_LIMITER"
+namespace_id = "1003"
+
+  [ratelimits.simple]
+  limit = 600
+  period = 60
+
+# The daily cap's counter: one Durable Object for each address.
+[[durable_objects.bindings]]
+name = "DAILY_QUOTA"
+class_name = "DailyQuota"
 
 # Workers Caching sits in front of every entrypoint. The default entrypoint
 # (origin check and rate limit) must stay uncached, or a cache hit would skip
@@ -46,5 +66,11 @@ type = "worker"
   [exports.Release.cache]
   enabled = true
 
-# The GitHub token is the secret MFA_DATA_TOKEN, set by the workflow from the
-# MFA_DATA_ACCESS Actions secret. It is never written here.
+[exports.DailyQuota]
+type = "durable-object"
+storage = "sqlite"
+
+# Secrets, set by the workflow and never written here: MFA_DATA_TOKEN (from
+# the MFA_DATA_ACCESS Actions secret), TURNSTILE_SECRET_KEY (from the
+# TURNSTILE_SECRET_KEY Actions secret) and SESSION_KEY (random on each deploy,
+# which ends existing sessions; the viewer quietly starts a new one).

@@ -7,6 +7,10 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+  # Daily, so the static pages for search engines follow new releases. A
+  # scheduled run leaves the Worker alone.
+  schedule:
+    - cron: "17 11 * * *"
 
 permissions:
   contents: read
@@ -21,7 +25,8 @@ jobs:
   # The data Worker at mfa-data.amyc.us (worker/, README "Data Worker"). The
   # Pages deploy waits for it, so a failed Worker deploy leaves the current
   # site live. Each deploy empties the Worker's cache, so a push redeploys it
-  # only when worker/ or this workflow changed; a manual run always does.
+  # only when worker/ or this workflow changed; a manual run always does, and
+  # a scheduled run never does.
   release-worker:
     runs-on: ubuntu-latest
     permissions:
@@ -42,20 +47,23 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           deploy=true
+          if [ "$EVENT" = schedule ]; then deploy=false; fi
           if [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             if git diff --quiet "$BEFORE" HEAD -- worker/ .github/workflows/pages.yml; then deploy=false; fi
           fi
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
-          if [ "$deploy" = false ]; then echo "worker/ is unchanged since $BEFORE; the Worker and its cache stay as they are."; fi
+          if [ "$deploy" = false ]; then echo "No Worker deploy for this $EVENT run; the Worker and its cache stay as they are."; fi
       - name: Check the deploy secrets
         if: steps.changed.outputs.deploy == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
           MFA_DATA_ACCESS: ${{ secrets.MFA_DATA_ACCESS }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
         run: |
           missing=0
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "::error::The CLOUDFLARE_API_KEY secret is empty."; missing=1; fi
           if [ -z "$MFA_DATA_ACCESS" ]; then echo "::error::The MFA_DATA_ACCESS secret is empty."; missing=1; fi
+          if [ -z "$TURNSTILE_SECRET_KEY" ]; then echo "::error::The TURNSTILE_SECRET_KEY secret is empty."; missing=1; fi
           exit "$missing"
       - name: Deploy the Worker with its GitHub token
         if: steps.changed.outputs.deploy == 'true'
@@ -63,14 +71,20 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
           MFA_DATA_ACCESS: ${{ secrets.MFA_DATA_ACCESS }}
-        # The token reaches Wrangler in a private temporary file, never on a
-        # command line or in the log, and is uploaded with this version as the
-        # Worker secret MFA_DATA_TOKEN.
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+        # The secrets reach Wrangler in a private temporary file, never on a
+        # command line or in the log, and are uploaded with this version:
+        # MFA_DATA_TOKEN, TURNSTILE_SECRET_KEY, and a new random SESSION_KEY
+        # (which ends existing sessions; the viewer quietly starts new ones).
         run: |
           secrets="$RUNNER_TEMP/worker-secrets.env"
           trap 'rm -f "$secrets"' EXIT
           umask 077
-          printf 'MFA_DATA_TOKEN=%s\n' "$MFA_DATA_ACCESS" > "$secrets"
+          {
+            printf 'MFA_DATA_TOKEN=%s\n' "$MFA_DATA_ACCESS"
+            printf 'TURNSTILE_SECRET_KEY=%s\n' "$TURNSTILE_SECRET_KEY"
+            printf 'SESSION_KEY=%s\n' "$(openssl rand -hex 32)"
+          } > "$secrets"
           npx --yes wrangler@4 deploy --secrets-file "$secrets"
       - name: Check the live Worker
         if: steps.changed.outputs.deploy == 'true'
@@ -90,6 +104,12 @@ jobs:
             code=$(get -H "Origin: https://mfa.amyc.us" "$base/ref")
             sha=$(cat "$body" 2>/dev/null || true)
             if [ "$code" = 200 ] && [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then break; fi
+            if [ "$code" = 401 ] && grep -qi '^x-mfa-session:' "$head"; then
+              code=$(get "$base/ref")
+              if [ "$code" != 403 ]; then echo "::error::$base/ref answered $code without Origin or Referer; expected 403."; exit 1; fi
+              echo "The Worker is up and requires a session, so the release files cannot be checked from here."
+              exit 0
+            fi
             if [ "$code" = 403 ] && grep -qi '^cf-mitigated: *challenge' "$head" 2>/dev/null; then
               echo "::warning::Cloudflare challenged this runner (Bot Fight Mode), so the Worker cannot be checked from GitHub. Check it from a browser."
               exit 0
@@ -126,6 +146,24 @@ jobs:
         run: node check-static.mjs
       - name: Test the data model
         run: node tests/model.test.mjs
+      - name: Test the static page builder
+        run: node tests/seo.test.mjs
+      - name: Build the static pages for search engines
+        # Reads the current release from GitHub with the read-only token (sent
+        # on stdin, never on a command line) and writes about/, jurisdictions/
+        # and sitemap.xml into the site. They carry no dollar amounts.
+        env:
+          MFA_DATA_ACCESS: ${{ secrets.MFA_DATA_ACCESS }}
+        run: |
+          release="$RUNNER_TEMP/release"
+          mkdir -p "$release/data" "$release/sources"
+          auth() { printf 'Authorization: Bearer %s\n' "$MFA_DATA_ACCESS"; }
+          sha=$(auth | curl -fsS -H @- -H "Accept: application/vnd.github.sha" https://api.github.com/repos/aimesy/mfa-data/commits/main)
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then echo "::error::Could not read the commit at mfa-data main."; exit 1; fi
+          for f in data/reported-fee-collections.csv sources/index.csv; do
+            auth | curl -fsS -H @- -o "$release/$f" "https://raw.githubusercontent.com/aimesy/mfa-data/$sha/$f"
+          done
+          node seo/build.mjs "$release" .
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

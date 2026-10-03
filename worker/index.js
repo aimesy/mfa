@@ -1,7 +1,7 @@
 // Entrypoints for the mfa-data Worker; the logic is in release.js.
 
-import { WorkerEntrypoint } from "cloudflare:workers";
-import { handleGateway, handleRelease } from "./release.js";
+import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
+import { applyQuota, handleGateway, handleRelease } from "./release.js";
 
 // Cached (wrangler.toml [exports.Release.cache]): one file from GitHub.
 export class Release extends WorkerEntrypoint {
@@ -18,10 +18,22 @@ export class Release extends WorkerEntrypoint {
   }
 }
 
-// Not cached (wrangler.toml [exports.default.cache]): origin check and rate
-// limit, then the cached Release entrypoint through ctx.exports.
+// The daily cap for one address (one object per address, named by it).
+export class DailyQuota extends DurableObject {
+  async take(day, units, limit) {
+    const { ok, record } = applyQuota(await this.ctx.storage.get("count"), day, units, limit);
+    if (ok) await this.ctx.storage.put("count", record);
+    return { ok, used: record.used };
+  }
+}
+
+// Not cached (wrangler.toml [exports.default.cache]): origin check, session
+// check and limits, then the cached Release entrypoint through ctx.exports.
 export default {
   fetch(request, env, ctx) {
-    return handleGateway(request, env, (req) => ctx.exports.Release.fetch(req));
+    return handleGateway(request, env, {
+      release: (req) => ctx.exports.Release.fetch(req),
+      quota: (address, day, units, limit) => env.DAILY_QUOTA.get(env.DAILY_QUOTA.idFromName(address)).take(day, units, limit),
+    });
   },
 };

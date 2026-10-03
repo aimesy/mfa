@@ -3,7 +3,7 @@
 // a stub for the cached Release entrypoint and a mocked fetch.
 
 import assert from "node:assert/strict";
-import { handleGateway, handleRelease, route, RELEASE_PATH } from "../worker/release.js";
+import { handleGateway, handleRelease, route, RELEASE_PATH, addressKey, applyQuota, makeSession, sessionState, requestShape } from "../worker/release.js";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const SITE = "https://mfa.amyc.us";
@@ -15,17 +15,37 @@ function limiter(allow = true) {
 }
 
 function env(extra = {}) {
-  return { ALLOWED_ORIGINS: "https://mfa.amyc.us https://aimesy.github.io", RATE_LIMITER: limiter(), ...extra };
+  return {
+    ALLOWED_ORIGINS: "https://mfa.amyc.us https://aimesy.github.io",
+    FILE_LIMITER: limiter(),
+    SLICE_LIMITER: limiter(),
+    SESSION_KEY: "test-session-key",
+    TURNSTILE_SECRET_KEY: "test-turnstile-secret",
+    ...extra,
+  };
+}
+
+// A stand-in for the DailyQuota Durable Object, with the real counting rule.
+function counter(limitOverride) {
+  const records = new Map();
+  const charges = [];
+  const take = async (address, day, units, limit) => {
+    charges.push({ address, day, units, limit });
+    const { ok, record } = applyQuota(records.get(address), day, units, limitOverride ?? limit);
+    if (ok) records.set(address, record);
+    return { ok, used: record.used };
+  };
+  return { take, charges, records };
 }
 
 // Gateway with a stub Release entrypoint that records what it was sent.
-async function gateway(path, { method = "GET", headers = {}, e = env(), reply } = {}) {
+async function gateway(path, { method = "GET", headers = {}, body, e = env(), reply, quota, fetchImpl, now } = {}) {
   const sent = [];
   const release = async (req) => {
     sent.push(req);
     return reply ? reply(req) : new Response("body", { headers: { "Content-Type": "application/pdf", "Cache-Control": "public, max-age=31536000, immutable" } });
   };
-  const res = await handleGateway(new Request(`${BASE}${path}`, { method, headers }), e, release);
+  const res = await handleGateway(new Request(`${BASE}${path}`, { method, headers, body }), e, { release, quota, fetchImpl, now });
   return { res, sent };
 }
 
@@ -72,7 +92,7 @@ async function release(path, { headers = {}, method = "GET", e = {}, upstream } 
   assert.equal(sent.length, 1);
   assert.equal(res.headers.get("Access-Control-Allow-Origin"), SITE);
   assert.match(res.headers.get("Vary"), /Origin/);
-  assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Content-Range, Content-Length, Accept-Ranges");
+  assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Content-Range, Content-Length, Accept-Ranges, X-MFA-Session");
   assert.equal(res.headers.get("X-Robots-Tag"), "noindex");
   assert.equal(await res.text(), "body");
 
@@ -110,18 +130,18 @@ async function release(path, { headers = {}, method = "GET", e = {}, upstream } 
 
 // Rate limit: per CF-Connecting-IP; over the limit, 429 with Retry-After and CORS so the viewer sees it.
 {
-  const e = env({ RATE_LIMITER: limiter(false) });
+  const e = env({ FILE_LIMITER: limiter(false) });
   const { res, sent } = await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE, "CF-Connecting-IP": "203.0.113.9" }, e });
   assert.equal(res.status, 429);
   assert.equal(sent.length, 0);
   assert.equal(res.headers.get("Retry-After"), "60");
   assert.equal(res.headers.get("Access-Control-Allow-Origin"), SITE);
-  assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Content-Range, Content-Length, Accept-Ranges");
-  assert.deepEqual(e.RATE_LIMITER.keys, ["203.0.113.9"]);
+  assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Content-Range, Content-Length, Accept-Ranges, X-MFA-Session");
+  assert.deepEqual(e.FILE_LIMITER.keys, ["203.0.113.9"]);
 
   const ok = env();
   await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE, "CF-Connecting-IP": "198.51.100.4" }, e: ok });
-  assert.deepEqual(ok.RATE_LIMITER.keys, ["198.51.100.4"]);
+  assert.deepEqual(ok.FILE_LIMITER.keys, ["198.51.100.4"]);
 }
 
 // OPTIONS preflight: allowed origin gets Range; unknown origin gets 403.
@@ -134,6 +154,8 @@ async function release(path, { headers = {}, method = "GET", e = {}, upstream } 
   assert.equal(res.headers.get("Access-Control-Allow-Origin"), SITE);
   assert.match(res.headers.get("Access-Control-Allow-Headers"), /Range/);
   assert.match(res.headers.get("Access-Control-Allow-Methods"), /GET/);
+  assert.match(res.headers.get("Access-Control-Allow-Methods"), /POST/);
+  assert.equal(res.headers.get("Access-Control-Allow-Credentials"), "true");
   assert.match(res.headers.get("Vary"), /Origin/);
   const denied = await gateway(`/${SHA}/evidence/x.pdf`, { method: "OPTIONS", headers: { Origin: "https://evil.example" } });
   assert.equal(denied.res.status, 403);
@@ -334,6 +356,159 @@ const TAGGED = "/releases/download/pdf-napa-001/american-canyon__evidence__outli
       : new Response("x", { status: 206, headers: { "Content-Range": "bytes 0-262143/90000000" } });
   }, async () => ({ [name]: 1 }));
   assert.deepEqual(ranged, ["bytes=0-262143", "bytes=0-262143"]);
+}
+
+// Addresses: IPv4 as is; IPv6 by its /64, since one household can use any of it.
+{
+  assert.equal(addressKey("203.0.113.9"), "203.0.113.9");
+  assert.equal(addressKey("2001:db8:1:2:3:4:5:6"), addressKey("2001:db8:1:2:ffff::7"));
+  assert.notEqual(addressKey("2001:db8:1:2::1"), addressKey("2001:db8:1:3::1"));
+  assert.equal(addressKey("::ffff:198.51.100.4"), "198.51.100.4");
+  assert.equal(addressKey(""), "unknown");
+}
+
+// Files and slices: one closed byte range up to 8 MB is a slice, anything else a file.
+{
+  const shape = (range) => requestShape(new Request(BASE, { headers: range ? { Range: range } : {} }));
+  assert.deepEqual(shape("bytes=262144-524287"), { slice: true, size: 262144 });
+  assert.deepEqual(shape("bytes=0-"), { slice: false, size: 0 });
+  assert.deepEqual(shape("bytes=0-99999999"), { slice: false, size: 0 });
+  assert.deepEqual(shape("bytes=0-1,5-9"), { slice: false, size: 0 });
+  assert.deepEqual(shape(null), { slice: false, size: 0 });
+
+  const e = env();
+  await gateway(`/${SHA}/sources/big.pdf`, { headers: { Origin: SITE, "CF-Connecting-IP": "2001:db8:1:2::9", Range: "bytes=0-262143" }, e });
+  await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE, "CF-Connecting-IP": "2001:db8:1:2::9" }, e });
+  assert.deepEqual(e.SLICE_LIMITER.keys, ["2001:db8:1:2::/64"]);
+  assert.deepEqual(e.FILE_LIMITER.keys, ["2001:db8:1:2::/64"]);
+
+  const busy = env({ SLICE_LIMITER: limiter(false) });
+  const { res } = await gateway(`/${SHA}/sources/big.pdf`, { headers: { Origin: SITE, Range: "bytes=0-262143" }, e: busy });
+  assert.equal(res.status, 429);
+  assert.equal(res.headers.get("Retry-After"), "60");
+}
+
+// Daily cap: a file is one unit, a slice counts by size (4 MB a unit), /ref is free.
+{
+  const day = Date.UTC(2026, 9, 3, 23, 0, 0);
+  const q = counter();
+  const headers = { Origin: SITE, "CF-Connecting-IP": "203.0.113.20" };
+  await gateway(`/${SHA}/manifest.json`, { headers, quota: q.take, now: day });
+  await gateway(`/${SHA}/sources/big.pdf`, { headers: { ...headers, Range: "bytes=0-1048575" }, quota: q.take, now: day });
+  await gateway("/ref", { headers, quota: q.take, now: day });
+  assert.deepEqual(q.charges.map((c) => c.units), [1, 0.25]);
+  assert.equal(q.charges[0].limit, 1000);
+  assert.equal(q.charges[0].day, "2026-10-03");
+  assert.equal(q.charges[0].address, "203.0.113.20");
+
+  const full = counter(1);
+  const first = await gateway(`/${SHA}/manifest.json`, { headers, quota: full.take, now: day });
+  assert.equal(first.res.status, 200);
+  const second = await gateway(`/${SHA}/data/x.csv`, { headers, quota: full.take, now: day });
+  assert.equal(second.res.status, 429);
+  assert.equal(second.sent.length, 0);
+  assert.equal(second.res.headers.get("Retry-After"), "3600", "until midnight UTC");
+  assert.equal(second.res.headers.get("Access-Control-Allow-Origin"), SITE);
+  const nextDay = await gateway(`/${SHA}/data/x.csv`, { headers, quota: full.take, now: day + 2 * 3600 * 1000 });
+  assert.equal(nextDay.res.status, 200, "the count starts again the next UTC day");
+
+  const limited = await gateway(`/${SHA}/manifest.json`, { headers, quota: counter().take, e: env({ DAILY_FILE_LIMIT: "5" }), now: day });
+  assert.equal(limited.res.status, 200);
+
+  const broken = await gateway(`/${SHA}/manifest.json`, { headers, quota: async () => { throw new Error("down"); }, now: day });
+  assert.equal(broken.res.status, 200, "an unreachable counter does not take the site down");
+}
+
+// Sessions: POST /session with a Turnstile token sets a cookie bound to the address.
+{
+  const verify = (out) => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, body: String(init.body) });
+      return Response.json(out);
+    };
+    return { calls, fetchImpl };
+  };
+  const headers = { Origin: SITE, "CF-Connecting-IP": "203.0.113.30", "Content-Type": "text/plain" };
+  const ok = verify({ success: true, hostname: "mfa.amyc.us" });
+  const { res, sent } = await gateway("/session", { method: "POST", headers, body: "tok", fetchImpl: ok.fetchImpl });
+  assert.equal(res.status, 204);
+  assert.equal(sent.length, 0);
+  assert.equal(ok.calls[0].url, "https://challenges.cloudflare.com/turnstile/v0/siteverify");
+  const form = new URLSearchParams(ok.calls[0].body);
+  assert.equal(form.get("secret"), "test-turnstile-secret");
+  assert.equal(form.get("response"), "tok");
+  assert.equal(form.get("remoteip"), "203.0.113.30");
+  const cookie = res.headers.get("Set-Cookie");
+  assert.match(cookie, /^mfa_session=v1\.\d+\.[A-Za-z0-9_-]+; Max-Age=43200; Path=\/; Secure; HttpOnly; SameSite=Lax$/);
+  assert.equal(res.headers.get("Access-Control-Allow-Credentials"), "true");
+  assert.equal(res.headers.get("Cache-Control"), "no-store");
+
+  const value = cookie.split(";")[0];
+  const withCookie = (ip) => new Request(BASE, { headers: { Cookie: `other=1; ${value}` } });
+  assert.equal(await sessionState(withCookie(), env(), "203.0.113.30"), "ok");
+  assert.equal(await sessionState(withCookie(), env(), "203.0.113.31"), "invalid", "bound to the address");
+  assert.equal(await sessionState(withCookie(), env({ SESSION_KEY: "another-key" }), "203.0.113.30"), "invalid", "a new deploy key ends it");
+  assert.equal(await sessionState(withCookie(), env(), "203.0.113.30", Date.now() + 13 * 3600 * 1000), "invalid", "expires after 12 hours");
+  assert.equal(await sessionState(new Request(BASE), env(), "203.0.113.30"), "missing");
+  assert.equal(await sessionState(new Request(BASE, { headers: { Cookie: "mfa_session=v1.99999999999.forged" } }), env(), "203.0.113.30"), "invalid");
+
+  const wrongHost = verify({ success: true, hostname: "evil.example" });
+  assert.equal((await gateway("/session", { method: "POST", headers, body: "tok", fetchImpl: wrongHost.fetchImpl })).res.status, 403);
+  const failed = verify({ success: false, "error-codes": ["invalid-input-response"] });
+  const refused = await gateway("/session", { method: "POST", headers, body: "tok", fetchImpl: failed.fetchImpl });
+  assert.equal(refused.res.status, 403);
+  assert.match(await refused.res.text(), /invalid-input-response/);
+  assert.equal((await gateway("/session", { method: "POST", headers, body: "", fetchImpl: ok.fetchImpl })).res.status, 400);
+  assert.equal((await gateway("/session", { method: "POST", headers, body: "tok", fetchImpl: ok.fetchImpl, e: env({ SESSION_KEY: "" }) })).res.status, 503);
+  assert.equal((await gateway("/session", { method: "GET", headers: { Origin: SITE } })).res.status, 405);
+  assert.equal((await gateway("/session", { method: "POST", headers: { "Content-Type": "text/plain" }, body: "tok", fetchImpl: ok.fetchImpl })).res.status, 403, "origin still checked");
+  assert.equal(ok.calls.length, 1, "Turnstile is asked only for a token that could pass");
+
+  const githubIo = verify({ success: true, hostname: "aimesy.github.io" });
+  assert.equal((await gateway("/session", { method: "POST", headers, body: "tok", fetchImpl: githubIo.fetchImpl })).res.status, 204);
+}
+
+// Enforcement: with REQUIRE_SESSION "true" a request needs a valid session; otherwise the state is only reported.
+{
+  const ip = "203.0.113.40";
+  const value = await makeSession("test-session-key", ip);
+  const headers = { Origin: SITE, "CF-Connecting-IP": ip };
+  const strict = env({ REQUIRE_SESSION: "true" });
+
+  const none = await gateway(`/${SHA}/manifest.json`, { headers, e: strict });
+  assert.equal(none.res.status, 401);
+  assert.equal(none.sent.length, 0);
+  assert.equal(none.res.headers.get("X-MFA-Session"), "missing");
+  assert.equal(none.res.headers.get("Access-Control-Allow-Origin"), SITE);
+  assert.equal(none.res.headers.get("Access-Control-Allow-Credentials"), "true");
+  assert.equal(none.res.headers.get("Cache-Control"), "no-store");
+
+  const good = await gateway(`/${SHA}/manifest.json`, { headers: { ...headers, Cookie: `mfa_session=${value}` }, e: strict });
+  assert.equal(good.res.status, 200);
+  assert.equal(good.res.headers.get("X-MFA-Session"), "ok");
+  assert.equal(good.res.headers.get("Access-Control-Allow-Credentials"), "true");
+  assert.equal(good.sent[0].headers.get("Cookie"), null, "the cookie never reaches the cached entrypoint");
+
+  const moved = await gateway(`/${SHA}/manifest.json`, { headers: { ...headers, "CF-Connecting-IP": "203.0.113.41", Cookie: `mfa_session=${value}` }, e: strict });
+  assert.equal(moved.res.status, 401);
+  assert.equal(moved.res.headers.get("X-MFA-Session"), "invalid");
+
+  const report = await gateway(`/${SHA}/manifest.json`, { headers, e: env() });
+  assert.equal(report.res.status, 200);
+  assert.equal(report.res.headers.get("X-MFA-Session"), "missing");
+
+  const ref = await gateway("/ref", { headers, e: strict });
+  assert.equal(ref.res.status, 401, "/ref needs a session too");
+  const robots = await gateway("/robots.txt", { e: strict });
+  assert.equal(robots.res.status, 200);
+}
+
+// The Release entrypoint never serves /session.
+{
+  const { res, calls } = await release("/session");
+  assert.equal(res.status, 404);
+  assert.equal(calls.length, 0);
 }
 
 console.log("worker tests passed");

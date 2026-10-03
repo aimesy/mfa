@@ -19,7 +19,7 @@ import {
 } from "./lib/model.js";
 import { readArithmetic } from "./lib/arith.js";
 import { PdfViewer } from "./lib/viewer.js";
-import { checkOutline, readPageText } from "./lib/evidence.js";
+import { checkOutline, readPageText, setDataFetch } from "./lib/evidence.js";
 import { readPageLines, figureColumn, namesFromPage } from "./lib/pagelines.js";
 import { el, svg } from "./lib/dom.js";
 
@@ -43,6 +43,9 @@ const RELEASE_PATH = /^(?:(?:sources|evidence|data|docs)\/[A-Za-z0-9._\/-]+|mani
 // download URL; the Worker serves them at the same path. Not tied to a commit.
 const ASSET_URL_ROOT = `https://github.com/${REPO}/`;
 const ASSET_PATH = /^releases\/download\/([A-Za-z0-9._-]{1,100})\/([A-Za-z0-9._-]{1,200}\.pdf)$/;
+// Turnstile site key (public). The Worker exchanges a passed check for a
+// session cookie; Managed mode asks for a click only when Cloudflare is unsure.
+const TURNSTILE_SITEKEY = "0x4AAAAAAFM3PzdZrBklJy9m";
 
 const $ = (id) => document.getElementById(id);
 
@@ -60,12 +63,101 @@ function readConfig() {
   return { local: false, ref: "", pinned: false, param: {} };
 }
 
+// ============================================================ SESSION
+
+let sessionPromise = null;
+let refreshing = null;
+let widgetId = null;
+let pendingCheck = null;
+
+function turnstileReady(timeoutMs = 20000) {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const poll = () => {
+      if (window.turnstile?.render) resolve(window.turnstile);
+      else if (Date.now() - started > timeoutMs) reject(new Error("The human check did not load."));
+      else setTimeout(poll, 50);
+    };
+    poll();
+  });
+}
+
+// One Turnstile token. The widget stays invisible unless Cloudflare wants an
+// interaction, and then it appears over the page.
+function humanCheckToken() {
+  return turnstileReady().then((ts) => new Promise((resolve, reject) => {
+    const box = $("human-check");
+    const show = (on) => {
+      box.classList.toggle("show", on);
+      box.setAttribute("aria-hidden", on ? "false" : "true");
+    };
+    // A new check replaces any earlier one, which must not wait forever.
+    pendingCheck?.(new Error("The human check was restarted."));
+    pendingCheck = reject;
+    if (widgetId !== null) ts.remove(widgetId);
+    widgetId = ts.render("#human-check-widget", {
+      sitekey: TURNSTILE_SITEKEY,
+      appearance: "interaction-only",
+      callback: (token) => { show(false); resolve(token); },
+      "error-callback": (code) => { show(false); reject(new Error(`The human check failed (${code}).`)); },
+      "before-interactive-callback": () => show(true),
+    });
+  }));
+}
+
+function startSession() {
+  return humanCheckToken()
+    .then((token) => fetch(`${DATA_ROOT}session`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "text/plain" },
+      body: token,
+    }))
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status} starting a session`);
+    });
+}
+
+// The session cookie for the data Worker; `fresh` starts a new one (one at a
+// time, however many requests were refused).
+function ensureSession(fresh = false) {
+  if (cfg.local) return Promise.resolve();
+  if (fresh) {
+    if (!refreshing) {
+      refreshing = startSession().finally(() => { refreshing = null; });
+      sessionPromise = refreshing;
+      sessionPromise.catch(() => { sessionPromise = null; });
+    }
+    return refreshing;
+  }
+  if (!sessionPromise) {
+    sessionPromise = startSession();
+    sessionPromise.catch(() => { sessionPromise = null; });
+  }
+  return sessionPromise;
+}
+
+// fetch() for release files: with the session cookie, and once more after a
+// fresh human check when the Worker asks for one (401).
+async function dataFetch(url, init = {}) {
+  if (cfg.local) return fetch(url, init);
+  await ensureSession().catch(() => {});
+  let res = await fetch(url, { ...init, credentials: "include" });
+  if (res.status === 401) {
+    await ensureSession(true);
+    res = await fetch(url, { ...init, credentials: "include" });
+  }
+  return res;
+}
+
+setDataFetch(dataFetch);
+
 async function resolveRef() {
   if (cfg.local || cfg.ref) return;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(`${DATA_ROOT}ref`, { signal: ctrl.signal });
+    const res = await dataFetch(`${DATA_ROOT}ref`, { signal: ctrl.signal });
     clearTimeout(timer);
     const sha = (await res.text()).trim();
     if (res.ok && /^[0-9a-f]{40}$/.test(sha)) {
@@ -275,7 +367,7 @@ function showLoading(msg, detail, error = false) {
 
 async function fetchText(path) {
   const url = dataUrl(path);
-  const res = await fetch(url);
+  const res = await dataFetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} reading ${path}`);
   return res.text();
 }
@@ -323,6 +415,10 @@ function ensureFileMeta() {
 
 async function boot() {
   try {
+    if (!cfg.local) {
+      showLoading("Loading", "Checking that a person is reading.");
+      await ensureSession().catch((err) => console.warn(err));
+    }
     showLoading("Loading", "Finding the release.");
     await resolveRef();
     renderReleaseLabel();
@@ -393,7 +489,7 @@ function renderTabs() {
 }
 
 function updateTitle() {
-  const base = "California Impact Fee Collections";
+  const base = "California Mitigation Fee Database";
   const fig = state.figure && model?.figureById.get(state.figure);
   let t = base;
   if (fig) t = `${fig.entity} · ${fmtFy(fig.fy)} · ${fig.program} · ${base}`;
@@ -558,6 +654,7 @@ let panelKey = "";
 
 function renderAll() {
   if (!model) return;
+  $("site-intro").hidden = !(state.view === DEFAULT_VIEW && !state.entity);
   renderTabs();
   renderToolbar();
   const ck = JSON.stringify([state.view, state.filters, state.sort, state.page, state.pageSize, state.entity,
@@ -1440,7 +1537,7 @@ function fillStats() {
           kv("Statewide lane", fmtInt(cohort.statewide_lane_rows_in_data_file)),
           kv("Total rows", fmtInt(cohort.total_rows_in_data_file))))),
       statsBlock("Tables", statsTable(["File", "Rows"], tables.map((t) => el("tr", {},
-        el("td", {}, doc(`data/${t.name}.csv`, `${t.name}.csv`)),
+        el("td", { text: `${t.name}.csv` }),
         el("td", { class: "num", text: fmtInt(t.rows) }))))),
       el("section", { class: "stats-block" },
         el("h3", { class: "section-label", text: "Release" }),
@@ -1449,8 +1546,6 @@ function fillStats() {
           kv("Built (UTC)", manifest.built_utc || ""),
           kv("Files, each with a SHA-256", fmtInt(manifest.file_count || manifest.files.size)),
           kv("Total size", fmtBytes(manifest.total_bytes)),
-          links("Downloads", doc("data/reported-fee-collections.csv", "CSV"), doc("data/reported-fee-collections.json", "JSON"),
-            doc("data/mfa-reviewed-collections.xlsx", "spreadsheet"), doc("manifest.json", "manifest")),
           links("Method", doc("docs/methodology.md", "methodology"), doc("docs/review-process.md", "review process"),
             doc("docs/data-dictionary.md", "data dictionary"), doc("docs/coverage.md", "coverage and gaps")))))),
     el("div", { class: "stats-col" },

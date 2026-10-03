@@ -5,19 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' https://aimesy.github.io; style-src 'self' 'unsafe-inline' https://aimesy.github.io; font-src 'self' https://cdn.jsdelivr.net data:; connect-src 'self' https://mfa-data.amyc.us; img-src 'self' data: blob:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
+      content="default-src 'self'; script-src 'self' https://aimesy.github.io https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://aimesy.github.io; font-src 'self' https://cdn.jsdelivr.net data:; connect-src 'self' https://mfa-data.amyc.us; img-src 'self' data: blob:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
-    <title>California Impact Fee Collections</title>
-    <meta name="description" content="Every published figure in the mfa-data release, with the page it was read from, its outline and its caveats." />
+    <title>California Mitigation Fee Database: Impact Fee Collections</title>
+    <meta name="description" content="Impact fee collections reported by California cities, counties and districts, each figure shown on the page of the report it was read from." />
+    <link rel="canonical" href="https://mfa.amyc.us/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mfa.amyc.us/" />
+    <meta property="og:title" content="California Mitigation Fee Database" />
+    <meta property="og:description" content="Impact fee collections reported by California cities, counties and districts, each figure shown on the page of the report it was read from." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": "California Mitigation Fee Database",
+        "alternateName": "California Impact Fee Collections",
+        "description": "Impact fee collections reported by California cities, counties and districts. Every published figure was read from the original report, outlined on the page it sits on, checked against the source’s own arithmetic, and reviewed twice before release.",
+        "url": "https://mfa.amyc.us/",
+        "keywords": ["mitigation fee", "impact fee", "development impact fee", "AB 1600", "California"],
+        "spatialCoverage": { "@type": "Place", "name": "California" },
+        "isAccessibleForFree": true,
+        "license": "https://amyc.us/terms"
+      }
+    </script>
     <meta name="theme-color" content="#24211d" />
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="vendor/noto-emoji/noto-emoji.css" />
-    <link rel="stylesheet" href="styles.css?v=20261003-1" />
+    <link rel="stylesheet" href="styles.css?v=20261003-3" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/theme.css" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/theme-bar.css" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/bug-report.css" />
     <script src="https://aimesy.github.io/themes/src/theme.js" defer></script>
     <script src="https://aimesy.github.io/themes/src/bug-report.js" defer></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   </head>
   <body>
     <div class="app" id="app">
@@ -55,7 +75,7 @@
         </div>
         <div class="entity-bar">
           <div class="hdr-left">
-            <h1>California Impact Fee Collections</h1>
+            <h1>California Mitigation Fee Database</h1>
             <span id="stats" class="hdr-stats">opening the release</span>
           </div>
           <div class="hdr-right">
@@ -75,6 +95,10 @@
           <a class="view-tab" data-view="stats" href="?view=stats">Stats</a>
         </div>
       </nav>
+
+      <section class="site-intro" id="site-intro">
+        <p>Impact fee collections reported by California cities, counties and districts, one printed figure at a time. Every published figure was read from the original report, outlined on the page it sits on, checked against the source’s own arithmetic, and reviewed twice before release. <a href="/about/">About the data</a> · <a href="/jurisdictions/">Browse jurisdictions</a></p>
+      </section>
 
       <section class="toolbar" id="toolbar" hidden></section>
 
@@ -97,6 +121,13 @@
 
     <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
-    <script type="module" src="app.js?v=20261003-2"></script>
+    <div class="human-check" id="human-check" role="dialog" aria-modal="true" aria-labelledby="human-check-msg" aria-hidden="true">
+      <div class="human-check-card">
+        <p id="human-check-msg">Cloudflare wants to confirm that a person is reading before it sends the data.</p>
+        <div id="human-check-widget"></div>
+      </div>
+    </div>
+
+    <script type="module" src="app.js?v=20261003-3"></script>
   </body>
 </html>

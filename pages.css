@@ -1,0 +1,126 @@
+/* Static pages built by seo/build.mjs (jurisdictions/, about/). Colours and
+   fonts come from the shared aimesy/themes tokens, which theme.css (loaded
+   after this file) sets; the :root block below is only a fallback so the
+   pages stay legible if the theme host is unreachable. */
+
+:root {
+  color-scheme: light;
+  --paper: #fbfaf6;
+  --paper-2: #f2efe7;
+  --plain: #fff;
+  --ink: #27231f;
+  --ink-2: #514b43;
+  --ink-3: #70685e;
+  --rule: #d8d0c3;
+  --rule-2: #ebe5dc;
+  --chrome: #24211d;
+  --chrome-ink: #d8d2c5;
+  --chrome-rule: #171511;
+  --chrome-accent: #caa85a;
+  --accent: #604716;
+  --accent-2: #7a5a16;
+  --link: #365765;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+a { color: var(--link); text-underline-offset: 0.15em; }
+a:hover, a:focus-visible { color: var(--accent); }
+
+header.site {
+  background: var(--chrome);
+  border-bottom: 1px solid var(--chrome-rule);
+  color: var(--chrome-ink);
+}
+header.site .bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.3rem 1.2rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.65rem 1rem;
+}
+header.site a { color: var(--chrome-ink); text-decoration: none; }
+header.site a:hover, header.site a:focus-visible { color: var(--chrome-accent); text-decoration: underline; }
+header.site .home { font-weight: 700; font-size: 1rem; }
+header.site nav { display: flex; gap: 1rem; font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; }
+
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 3rem;
+  overflow-wrap: break-word;
+}
+
+h1 { font-size: 1.75rem; line-height: 1.2; margin: 0.4rem 0 1rem; }
+h2 { font-size: 1.2rem; line-height: 1.3; margin: 2rem 0 0.6rem; }
+p, ul { margin: 0 0 1rem; }
+li { margin-bottom: 0.35rem; }
+
+.lede { font-size: 1.12rem; color: var(--ink); }
+.note { color: var(--ink-2); font-size: 0.95rem; }
+
+.crumbs, .foot-links, nav.counties {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+.crumbs { margin: 0; }
+.foot-links { margin-top: 2.5rem; padding-top: 0.8rem; border-top: 1px solid var(--rule); }
+
+.open { margin: 1.25rem 0 1.5rem; }
+.button {
+  display: inline-block;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--plain);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+}
+.button:hover, .button:focus-visible { background: var(--accent-2); border-color: var(--accent-2); color: var(--plain); }
+
+/* Jurisdictions hub */
+nav.counties { line-height: 1.9; margin: 0 0 1.5rem; }
+nav.counties a { margin-right: 0.7rem; white-space: nowrap; }
+section.county h2 {
+  margin: 1.8rem 0 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--rule-2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+ul.jurisdictions { list-style: none; padding: 0; columns: 2 17rem; column-gap: 2rem; }
+ul.jurisdictions li { break-inside: avoid; margin: 0; padding: 0.15rem 0; }
+.kind { color: var(--ink-3); font-family: var(--font-mono); font-size: 0.72rem; white-space: nowrap; }
+
+/* Jurisdiction page */
+ul.fees { list-style: none; padding: 0; }
+ul.fees li { margin: 0; padding: 0.55rem 0; border-top: 1px solid var(--rule-2); }
+ul.fees .fee { display: block; }
+ul.fees .years { display: block; color: var(--ink-3); font-family: var(--font-mono); font-size: 0.78rem; }
+ul.fees .printed { display: block; color: var(--ink-2); font-size: 0.9rem; }
