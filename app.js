@@ -437,10 +437,10 @@ async function boot() {
       showLoading("Loading", "Checking browser.");
       await ensureSession().catch((err) => console.warn(err));
     }
-    showLoading("Loading", "Finding the release.");
+    showLoading("Loading", "Finding release.");
     await resolveRef();
     renderReleaseLabel();
-    showLoading("Loading", "Reading the release.");
+    showLoading("Loading", "Reading release.");
     const [feeText, sourceText] = await Promise.all([
       fetchText("data/reported-fee-collections.csv"),
       fetchText("sources/index.csv"),
@@ -938,7 +938,7 @@ function evidenceCell(fig, list) {
     el("span", { class: "ev-links" },
       el("button", {
         class: "pdf-btn", type: "button", text: fig.page ? `p.${fig.page}` : "page",
-        title: `Open the outlined page${fig.page ? ` (PDF page ${fig.page})` : ""}`,
+        title: `Open outlined page${fig.page ? ` (PDF page ${fig.page})` : ""}`,
         onclick: (e) => { e.stopPropagation(); openFigure(fig.id, { list }); },
       }),
       off ? el("a", { class: "pdf-btn ext", href: off, target: "_blank", rel: "noopener", title: `Official source${fig.page ? `, page ${fig.page}` : ""}`, "aria-label": "Official source", text: "↗", onclick: (e) => e.stopPropagation() }) : null,
@@ -1265,7 +1265,7 @@ function renderFeePage(content) {
         el("td", { class: "col-fy", text: fmtFy(fy) }),
         el("td", { class: "num", text: fmtUsd(fig.value) }),
         el("td", { class: `col-printed ${changed ? "" : "same"}`, title: fig.program, text: changed ? fig.program : "″" }),
-        el("td", {}, el("button", { class: "pdf-btn", type: "button", text: `p.${fig.page}`, title: "Open the outlined page", onclick: () => openFigure(fig.id, { list: order }) })),
+        el("td", {}, el("button", { class: "pdf-btn", type: "button", text: `p.${fig.page}`, title: "Open outlined page", onclick: () => openFigure(fig.id, { list: order }) })),
         joinedCell(join),
       ));
       prevName = fig.program;
@@ -1376,7 +1376,7 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
       el("td", { class: "num", text: fmtBytes(src._bytes) }),
       el("td", { class: "num" }, src._figures ? el("a", {
         href: figuresHref({ source: src.source_id, sort: "page.asc" }),
-        title: "Show these figures in the table",
+        title: "Show these figures in table",
         onclick: (ev) => { ev.preventDefault(); showSourceFigures(src.source_id); },
         text: fmtInt(src._figures),
       }) : "0"),
@@ -1854,7 +1854,7 @@ async function showFigureEvidence(fig) {
       page: 1,
       paging: false,
       outlineInFile: true,
-      mismatchNote: "Recorded rectangle doesn't match the drawn outline. No marker added.",
+      mismatchNote: "Recorded rectangle doesn't match drawn outline. No marker added.",
       boxesForPage: () => [figureBox(fig, true)],
       goToDocument: () => openDoc(p.source_id, state.pg || fig.page),
     });
@@ -1868,7 +1868,7 @@ async function showFigureEvidence(fig) {
       page: state.pg || fig.page,
       paging: true,
       outlineInFile: false,
-      mismatchNote: "No box: recorded rectangle doesn't match the outline. See Outlined page.",
+      mismatchNote: "No box: recorded rectangle doesn't match outline. See Outlined page.",
       boxesForPage: (n) => figuresOnPage(p.source_pdf, n).map((f) => figureBox(f, f.id === fig.id)),
       goToDocument: () => openDoc(p.source_id, state.pg || fig.page),
     });
@@ -1951,7 +1951,7 @@ function pageFor(fig) {
 function arithmeticView(fig) {
   const text = fig.primary.arithmetic_check;
   if (!text || !text.trim()) return para("", "None recorded.");
-  const box = el("div", { class: "arith-view" }, para("", "Reading the page…"));
+  const box = el("div", { class: "arith-view" }, para("", "Reading page…"));
   pageFor(fig).then((page) => box.replaceChildren(...[arithmeticTables(fig, text, page)].flat().filter(Boolean)));
   return box;
 }
