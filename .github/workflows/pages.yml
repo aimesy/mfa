@@ -56,26 +56,32 @@ jobs:
           printf 'MFA_DATA_TOKEN=%s\n' "$MFA_DATA_ACCESS" > "$secrets"
           npx --yes wrangler@4 deploy --secrets-file "$secrets"
       - name: Check the live Worker
-        # Retries while the custom domain's certificate is issued on the first deploy.
+        # Retries while the custom domain's DNS record and certificate appear on
+        # the first deploy. DNS goes over HTTPS so a lookup cached before the
+        # record existed cannot stall the check.
         run: |
           base=https://mfa-data.amyc.us
+          body="$RUNNER_TEMP/body"
+          get() { curl -sS --max-time 120 --doh-url https://cloudflare-dns.com/dns-query -o "$body" -w '%{http_code}' "$@" || echo 000; }
           sha=""
           for i in $(seq 1 36); do
-            sha=$(curl -sS --max-time 20 -H "Origin: https://mfa.amyc.us" "$base/ref" || true)
-            if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then break; fi
-            echo "attempt $i: /ref not ready yet"
+            code=$(get -H "Origin: https://mfa.amyc.us" "$base/ref")
+            sha=$(cat "$body" 2>/dev/null || true)
+            if [ "$code" = 200 ] && [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then break; fi
+            echo "attempt $i: /ref answered $code: $(head -c 160 "$body" 2>/dev/null | tr -d '\r\n')"
+            sha=""
             sleep 10
           done
-          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then echo "::error::$base/ref did not return a commit."; exit 1; fi
+          if [ -z "$sha" ]; then echo "::error::$base/ref did not return a commit."; exit 1; fi
           echo "main is at $sha"
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -H "Origin: https://mfa.amyc.us" "$base/$sha/manifest.json")
+          code=$(get -H "Origin: https://mfa.amyc.us" "$base/$sha/manifest.json")
           if [ "$code" != 200 ]; then echo "::error::$base/$sha/manifest.json answered $code with the site's Origin."; exit 1; fi
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 "$base/$sha/manifest.json")
+          code=$(get "$base/$sha/manifest.json")
           if [ "$code" != 403 ]; then echo "::error::$base/$sha/manifest.json answered $code without Origin or Referer; expected 403."; exit 1; fi
-          curl -sS --max-time 60 -H "Origin: https://mfa.amyc.us" -o "$RUNNER_TEMP/sources.csv" "$base/$sha/sources/index.csv"
-          asset=$(grep -o -m1 'https://github.com/aimesy/mfa-data/releases/download/[A-Za-z0-9._-]*/[A-Za-z0-9._-]*\.pdf' "$RUNNER_TEMP/sources.csv" || true)
-          if [ -z "$asset" ]; then echo "::error::sources/index.csv lists no release asset."; exit 1; fi
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 120 -r 0-1023 -H "Origin: https://mfa.amyc.us" "$base/${asset#https://github.com/aimesy/mfa-data/}")
+          code=$(get -H "Origin: https://mfa.amyc.us" "$base/$sha/sources/index.csv")
+          asset=$(grep -o -m1 'https://github.com/aimesy/mfa-data/releases/download/[A-Za-z0-9._-]*/[A-Za-z0-9._-]*\.pdf' "$body" || true)
+          if [ -z "$asset" ]; then echo "::error::sources/index.csv ($code) lists no release asset."; exit 1; fi
+          code=$(get -r 0-1023 -H "Origin: https://mfa.amyc.us" "$base/${asset#https://github.com/aimesy/mfa-data/}")
           if [ "$code" != 206 ] && [ "$code" != 200 ]; then echo "::error::Release asset ${asset##*/} answered $code."; exit 1; fi
           echo "The Worker serves the release and its assets to the site and refuses other callers."
 
