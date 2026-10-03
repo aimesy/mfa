@@ -20,19 +20,35 @@ concurrency:
 jobs:
   # The data Worker at mfa-data.amyc.us (worker/, README "Data Worker"). The
   # Pages deploy waits for it, so a failed Worker deploy leaves the current
-  # site live.
+  # site live. Each deploy empties the Worker's cache, so a push redeploys it
+  # only when worker/ or this workflow changed; a manual run always does.
   release-worker:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Test the data Worker
         run: node tests/worker.test.mjs
+      - name: Decide whether the Worker changed
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          deploy=true
+          if [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            if git diff --quiet "$BEFORE" HEAD -- worker/ .github/workflows/pages.yml; then deploy=false; fi
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          if [ "$deploy" = false ]; then echo "worker/ is unchanged since $BEFORE; the Worker and its cache stay as they are."; fi
       - name: Check the deploy secrets
+        if: steps.changed.outputs.deploy == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
           MFA_DATA_ACCESS: ${{ secrets.MFA_DATA_ACCESS }}
@@ -42,6 +58,7 @@ jobs:
           if [ -z "$MFA_DATA_ACCESS" ]; then echo "::error::The MFA_DATA_ACCESS secret is empty."; missing=1; fi
           exit "$missing"
       - name: Deploy the Worker with its GitHub token
+        if: steps.changed.outputs.deploy == 'true'
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -56,6 +73,7 @@ jobs:
           printf 'MFA_DATA_TOKEN=%s\n' "$MFA_DATA_ACCESS" > "$secrets"
           npx --yes wrangler@4 deploy --secrets-file "$secrets"
       - name: Check the live Worker
+        if: steps.changed.outputs.deploy == 'true'
         # Retries while the custom domain's DNS record and certificate appear on
         # the first deploy. DNS goes over HTTPS so a lookup cached before the
         # record existed cannot stall the check. Bot Fight Mode on amyc.us
