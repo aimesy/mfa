@@ -434,7 +434,7 @@ function ensureFileMeta() {
 async function boot() {
   try {
     if (!cfg.local) {
-      showLoading("Loading", "Checking that a person is reading.");
+      showLoading("Loading", "Checking browser.");
       await ensureSession().catch((err) => console.warn(err));
     }
     showLoading("Loading", "Finding the release.");

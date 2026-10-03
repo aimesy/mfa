@@ -25,7 +25,7 @@ head_sampling_rate = 1
 ALLOWED_ORIGINS = "https://mfa.amyc.us https://aimesy.github.io"
 # "true" refuses data requests that carry no session from the Turnstile check;
 # anything else serves them and only reports the state in X-MFA-Session.
-REQUIRE_SESSION = "false"
+REQUIRE_SESSION = "true"
 # Files a day for each address (an IPv4 address or an IPv6 /64). Slices of
 # big reports count by size: every 4 MB is one file.
 DAILY_FILE_LIMIT = "1000"

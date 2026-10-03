@@ -308,7 +308,7 @@ export async function handleGateway(request, env, { release, quota, fetchImpl = 
   const session = await sessionState(request, env, address, now);
   log(JSON.stringify({ kind: target.kind, slice: shape.slice, session }));
   if (session !== "ok" && env.REQUIRE_SESSION === "true") {
-    return plain(401, "Open the database at https://mfa.amyc.us; it checks that a person is reading.\n", { ...cors, "X-MFA-Session": session });
+    return plain(401, "Open the database at https://mfa.amyc.us; it checks your browser first.\n", { ...cors, "X-MFA-Session": session });
   }
 
   if (target.kind !== "ref" && quota) {
