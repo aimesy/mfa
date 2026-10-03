@@ -69,6 +69,11 @@ let sessionPromise = null;
 let refreshing = null;
 let widgetId = null;
 let pendingCheck = null;
+// A browser Cloudflare will not pass is asked at most this often per page
+// load, then told so, instead of being asked again for every file.
+const MAX_CHECKS = 2;
+let failedChecks = 0;
+const CHECK_REFUSED = "Cloudflare could not confirm that a person is using this browser. Reload to try again, or try another browser.";
 
 function turnstileReady(timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
@@ -98,14 +103,20 @@ function humanCheckToken() {
     widgetId = ts.render("#human-check-widget", {
       sitekey: TURNSTILE_SITEKEY,
       appearance: "interaction-only",
+      retry: "never",
       callback: (token) => { show(false); resolve(token); },
-      "error-callback": (code) => { show(false); reject(new Error(`The human check failed (${code}).`)); },
+      "error-callback": (code) => {
+        show(false);
+        reject(new Error(`The human check failed (${code}).`));
+        return true;
+      },
       "before-interactive-callback": () => show(true),
     });
   }));
 }
 
 function startSession() {
+  if (failedChecks >= MAX_CHECKS) return Promise.reject(new Error(CHECK_REFUSED));
   return humanCheckToken()
     .then((token) => fetch(`${DATA_ROOT}session`, {
       method: "POST",
@@ -113,8 +124,13 @@ function startSession() {
       headers: { "Content-Type": "text/plain" },
       body: token,
     }))
-    .then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status} starting a session`);
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status} starting a session: ${(await res.text()).trim()}`);
+    })
+    .catch((err) => {
+      failedChecks += 1;
+      console.warn("human check", err);
+      throw failedChecks >= MAX_CHECKS ? new Error(CHECK_REFUSED) : err;
     });
 }
 
@@ -155,6 +171,8 @@ setDataFetch(dataFetch);
 async function resolveRef() {
   if (cfg.local || cfg.ref) return;
   try {
+    // The session first, so a human check does not use up the timeout.
+    await ensureSession().catch(() => {});
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 6000);
     const res = await dataFetch(`${DATA_ROOT}ref`, { signal: ctrl.signal });
