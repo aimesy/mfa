@@ -74,7 +74,11 @@ export function parseRelease(feeText, sourceText) {
 }
 
 export function browseProjection(data) {
-  const model = buildModel(data.rows.map((r) => ({ ...r })), data.sources);
+  // The aggregate model needs grouping labels and primary values only.
+  // Keeping full excerpts out avoids duplicating their search strings in a
+  // 128 MB Worker isolate; the original rows remain intact for detail routes.
+  const modelFields = ["record_id", "figure_group_id", "is_primary_in_figure_group", "receiving_entity", "entity_type", "county", "fiscal_year", "fee_program", "fee_category", "physical_pdf_page", "source_id", "land_use_scope", "value_usd"];
+  const model = buildModel(data.rows.map((r) => Object.fromEntries(modelFields.map((key) => [key, r[key] || ""]))));
   // Small groups reveal the amounts they contain. Only broad aggregates
   // are published; an individual amount always needs its record request.
   const aggregate = (count, sum) => count >= 5 ? sum : null;
