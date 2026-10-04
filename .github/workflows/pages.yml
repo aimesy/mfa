@@ -39,7 +39,10 @@ jobs:
         with:
           node-version: "22"
       - name: Test the data Worker
-        run: node tests/worker.test.mjs
+        run: |
+          node tests/worker.test.mjs
+          node tests/projection.test.mjs
+          python tests/build-browse.test.py
       - name: Decide whether the Worker changed
         id: changed
         env:
@@ -65,6 +68,12 @@ jobs:
           if [ -z "$MFA_DATA_ACCESS" ]; then echo "::error::The MFA_DATA_ACCESS secret is empty."; missing=1; fi
           if [ -z "$TURNSTILE_SECRET_KEY" ]; then echo "::error::The TURNSTILE_SECRET_KEY secret is empty."; missing=1; fi
           exit "$missing"
+      - name: Require the canonical browsing projections
+        if: steps.changed.outputs.deploy == 'true'
+        env:
+          MFA_DATA_ACCESS: ${{ secrets.MFA_DATA_ACCESS }}
+          MFA_PROJECTION_FALLBACK: "true"
+        run: node scripts/check-projections.mjs
       - name: Deploy the Worker with its GitHub token
         if: steps.changed.outputs.deploy == 'true'
         working-directory: worker

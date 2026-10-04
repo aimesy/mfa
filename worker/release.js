@@ -18,12 +18,13 @@
 // The cache sits in front of each entrypoint, so the gateway must stay
 // uncached or a cache hit would skip the checks and the limits.
 
-import { addressKey, chargeDocument, plain, readSession, hasSession, startSession } from "./gate.js";
+import { addressKey, chargeDocument, checkSessionAccess, plain, readSession, hasSession, startSession } from "./gate.js";
+import { browseProjection, figureHashes, figureProjection, parseRelease, prepareDetailIds, sourceProjection } from "./projection.js";
 
 export const REPO = "aimesy/mfa-data";
 export const BRANCH = "main";
 // Copied from app.js; check-static.mjs fails if the two differ.
-export const RELEASE_PATH = /^(?:(?:sources|evidence|data|docs)\/[A-Za-z0-9._\/-]+|manifest\.json|README\.md)$/;
+export const RELEASE_PATH = /^(?:(?:sources|evidence|data|docs|figures|source-records)\/[A-Za-z0-9._\/-]+|browse\.json|manifest\.json|README\.md)$/;
 // Release assets, as the CSVs list them after https://github.com/aimesy/mfa-data/.
 // Copied from app.js; check-static.mjs fails if the two differ.
 export const ASSET_PATH = /^releases\/download\/([A-Za-z0-9._-]{1,100})\/([A-Za-z0-9._-]{1,200}\.pdf)$/;
@@ -62,12 +63,11 @@ export const GATE = {
 // reads nothing from mfa-data, and mfa-data has no LIVE.md, so none.
 export const OPEN_PATHS = [];
 
-// Documents count toward the limits in gate.js; everything else the viewer
-// reads (the CSV, sources/index.csv, evidence/index.json, manifest.json,
-// /ref) is an index file and never counts. Documents are the evidence PDFs
-// and reports: release assets, and any PDF in the repository. The key names
-// one document whatever the ref or byte range.
+// Complete figure/source records and PDFs count toward the limits in gate.js.
+// Metadata browsing and count-only summaries stay available in an active
+// session. The key names one record/document whatever the ref or byte range.
 export function documentKey(target) {
+  if (target?.kind === "figure" || target?.kind === "source") return `${target.kind}:${target.id}`;
   if (target?.kind === "asset") return `asset:${target.tag}/${target.name}`;
   if (target?.kind === "file" && /\.pdf$/i.test(target.path)) return `file:${target.path}`;
   return null;
@@ -96,6 +96,9 @@ export function route(pathname) {
   if (!m) return null;
   const [, ref, path] = m;
   if (!(SHA.test(ref) || ref === BRANCH)) return null;
+  if (path === "browse.json") return { kind: "browse", ref };
+  const record = /^(figures|source-records)\/([A-Za-z0-9._-]{1,200})\.json$/.exec(path);
+  if (record && !path.includes("..")) return { kind: record[1] === "figures" ? "figure" : "source", ref, id: record[2] };
   if (!RELEASE_PATH.test(path) || path.includes("..")) return null;
   return { kind: "file", ref, path };
 }
@@ -196,6 +199,9 @@ export async function handleGateway(request, env, { release, counters, fetchImpl
   }
 
   if (!target || target.kind === "robots") return plain(404, "Not found\n", cors);
+  // Only exact metadata files and individual PDFs may leave the gateway.
+  // The cached Release entrypoint alone can read the raw source tables.
+  if (target.kind === "file" && !/\.pdf$/i.test(target.path) && !["manifest.json", "data/cohort-accounting.json", "data/refusals-by-reason.csv"].includes(target.path)) return plain(404, "Not found\n", cors);
   const cfg = { ...GATE, origins };
   const record = (fields) => log(JSON.stringify(fields));
   if (target.kind === "session") {
@@ -211,6 +217,8 @@ export async function handleGateway(request, env, { release, counters, fetchImpl
   }
 
   let outcome = open ? "open" : "index";
+  const sessionRefusal = open ? null : await checkSessionAccess(env, { session, cors, cfg, counters, now });
+  if (sessionRefusal) return sessionRefusal;
   if (docKey && counters) {
     const charged = await chargeDocument(env, { session, address, key: docKey, cors, cfg, counters, now });
     outcome = charged.outcome;
@@ -354,11 +362,20 @@ async function assetResponse(request, target, env, fetchImpl, lookup) {
 // Release entrypoint. Fetches one file, one release asset, or the commit at
 // main from GitHub. `lookup(tag)` answers a release's name -> id map (null if
 // there is no such release); index.js routes it through the cached /_assets/<tag>.
-export async function handleRelease(request, env, fetchImpl = fetch, lookup = async () => undefined) {
+export async function handleRelease(request, env, fetchImpl = fetch, lookup = async () => undefined, readInput) {
   const url = new URL(request.url);
 
   const internal = /^\/_assets\/([^/]+)$/.exec(url.pathname);
   if (internal) return TAG.test(internal[1]) ? assetMap(internal[1], env, fetchImpl) : plain(404, "Not found\n");
+  // Only the cached Release entrypoint can fetch these private inputs. The
+  // uncached gateway has no route to them, even with a valid/trusted session.
+  const input = /^\/_projection-input\/(main|[0-9a-f]{40})\/(data\/reported-fee-collections\.csv|sources\/index\.csv|evidence\/index\.json)$/.exec(url.pathname);
+  if (input) {
+    try {
+      const response = await fetchImpl(`https://raw.githubusercontent.com/${REPO}/${input[1]}/${input[2]}`, { headers: upstreamHeaders(env) });
+      return fileResponse(response, input[2], SHA.test(input[1]) ? IMMUTABLE : SHORT, request.method);
+    } catch { return plain(502, "Projection input unavailable\n"); }
+  }
 
   const target = route(url.pathname);
   if (!target || target.kind === "robots" || target.kind === "session") return plain(404, "Not found\n");
@@ -386,17 +403,40 @@ export async function handleRelease(request, env, fetchImpl = fetch, lookup = as
 
   if (target.kind === "asset") return assetResponse(request, target, env, fetchImpl, lookup);
 
+  // Prefer exact precomputed files. Older releases can be projected under the
+  // same rules while the canonical writer is busy, using the paid CPU budget.
+  const path = target.kind === "browse" ? "browse.json" : target.kind === "figure" ? `figures/${target.id}.json` : target.kind === "source" ? `source-records/${target.id}.json` : target.path;
   const extra = {};
   const range = request.headers.get("Range");
-  if (range) extra.Range = range;
+  if (range && /\.pdf$/i.test(path)) extra.Range = range;
   let res;
   try {
-    res = await fetchImpl(`https://raw.githubusercontent.com/${REPO}/${target.ref}/${target.path}`, {
+    res = await fetchImpl(`https://raw.githubusercontent.com/${REPO}/${target.ref}/${path}`, {
       method: request.method === "HEAD" ? "HEAD" : "GET",
       headers: upstreamHeaders(env, extra),
     });
   } catch {
     return plain(502, "GitHub did not answer\n");
   }
-  return fileResponse(res, target.path, SHA.test(target.ref) ? IMMUTABLE : SHORT, request.method);
+  if (res.status === 404 && env?.MFA_PROJECTION_FALLBACK === "true" && ["browse", "figure", "source"].includes(target.kind)) {
+    try {
+      const read = readInput || (async (ref, rel) => {
+        const response = await fetchImpl(`https://raw.githubusercontent.com/${REPO}/${ref}/${rel}`, { headers: upstreamHeaders(env) });
+        if (!response.ok) throw new Error("Projection input unavailable");
+        return response.text();
+      });
+      const [feeText, sourceText] = await Promise.all([target.kind === "source" ? "" : read(target.ref, "data/reported-fee-collections.csv"), read(target.ref, "sources/index.csv")]);
+      const data = parseRelease(feeText, sourceText);
+      if (target.kind !== "source") await prepareDetailIds(data);
+      const projected = target.kind === "browse" ? browseProjection(data) : target.kind === "figure" ? figureProjection(data, target.id) : sourceProjection(data, target.id);
+      if (!projected) return plain(404, "Not found\n");
+      if (target.kind === "figure") {
+        const evidence = JSON.parse(await read(target.ref, "evidence/index.json"));
+        projected.hashes = figureHashes(projected.rows, evidence);
+      }
+      const response = json(200, projected, SHA.test(target.ref) ? IMMUTABLE : SHORT);
+      return request.method === "HEAD" ? new Response(null, { headers: response.headers }) : response;
+    } catch { return plain(502, "Projection unavailable\n"); }
+  }
+  return fileResponse(res, path, SHA.test(target.ref) ? IMMUTABLE : SHORT, request.method);
 }

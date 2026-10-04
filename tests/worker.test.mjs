@@ -90,7 +90,7 @@ async function release(path, { headers = {}, method = "GET", e = {}, upstream } 
   assert.equal(viaReferer.res.status, 200);
   assert.equal(viaReferer.res.headers.get("Access-Control-Allow-Origin"), "https://aimesy.github.io");
 
-  const kept = await gateway(`/${SHA}/data/x.csv`, { headers: { Origin: SITE }, reply: () => new Response("x", { headers: { Vary: "Accept-Encoding" } }) });
+  const kept = await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE }, reply: () => new Response("x", { headers: { Vary: "Accept-Encoding" } }) });
   assert.equal(kept.res.headers.get("Vary"), "Accept-Encoding, Origin");
 }
 

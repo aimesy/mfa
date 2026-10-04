@@ -38,7 +38,7 @@ const DEFAULT_SORT = { col: "fy", dir: "desc" };
 const DEFAULT_ENTITY_SORT = { col: "sum", dir: "desc" };
 const DEFAULT_SOURCE_SORT = { col: "agency", dir: "asc" };
 const DEFAULT_FEE_SORT = { col: "entity", dir: "asc" };
-const RELEASE_PATH = /^(?:(?:sources|evidence|data|docs)\/[A-Za-z0-9._\/-]+|manifest\.json|README\.md)$/;
+const RELEASE_PATH = /^(?:(?:sources|evidence|data|docs|figures|source-records)\/[A-Za-z0-9._\/-]+|browse\.json|manifest\.json|README\.md)$/;
 // The release's PDFs are GitHub release assets, which the CSVs list by their
 // download URL; the Worker serves them at the same path. Not tied to a commit.
 const ASSET_URL_ROOT = `https://github.com/${REPO}/`;
@@ -299,6 +299,9 @@ const state = {
 };
 
 let model = null;
+let browsing = null;
+const detailRequests = new Map();
+const detailHashes = new Map();
 let columns = [];
 let manifestPromise = null;
 let evidenceHashPromise = null;
@@ -457,6 +460,7 @@ function ensureManifest() {
 // The manifest lists the repository's files. The evidence PDFs are release
 // assets, so their hashes come from evidence/index.json.
 function ensureEvidenceHashes() {
+  if (!cfg.local) return Promise.resolve(detailHashes);
   if (!evidenceHashPromise) {
     evidenceHashPromise = fetchJson("evidence/index.json").then((rows) => {
       const hashes = new Map();
@@ -489,14 +493,15 @@ async function boot() {
     await resolveRef();
     renderReleaseLabel();
     showLoading("Loading", "Reading release.");
-    const [feeText, sourceText] = await Promise.all([
-      fetchText("data/reported-fee-collections.csv"),
-      fetchText("sources/index.csv"),
-    ]);
-    const fees = parseCsvObjects(feeText);
-    const sources = parseCsvObjects(sourceText);
-    columns = fees.columns;
-    model = buildModel(fees.rows, sources.rows);
+    if (cfg.local) {
+      const [feeText, sourceText] = await Promise.all([fetchText("data/reported-fee-collections.csv"), fetchText("sources/index.csv")]);
+      const fees = parseCsvObjects(feeText);
+      columns = fees.columns;
+      model = buildModel(fees.rows, parseCsvObjects(sourceText).rows);
+    } else {
+      browsing = await fetchJson("browse.json");
+      model = buildModel(browsing.rows, browsing.sources, undefined, browsing.aggregates);
+    }
     if (model.problems.length) console.warn("Figure groups without exactly one primary row:", model.problems);
     indexPages();
     $("loading-banner").hidden = true;
@@ -541,7 +546,7 @@ function renderReleaseLabel() {
 }
 
 function renderStats() {
-  $("stats").textContent = `${fmtInt(model.figures.length)} printed figures · ${fmtInt(model.rows.length)} rows · ${fmtInt(model.entities.length)} jurisdictions · ${fmtInt(model.sources.length)} publications`;
+  $("stats").textContent = `${fmtInt(model.figures.length)} printed figures · ${fmtInt(browsing?.rowCount ?? model.rows.length)} rows · ${fmtInt(model.entities.length)} jurisdictions · ${fmtInt(model.sources.length)} publications`;
 }
 
 function renderTabs() {
@@ -631,7 +636,7 @@ function renderToolbar() {
   const bar = $("toolbar");
   const dossier = (state.view === "entities" && state.entity) || (state.view === "fees" && state.fee);
   const key = dossier ? "dossier" : state.view;
-  $("export-btn").hidden = !(state.view === "figures" || (state.view === "entities" && state.entity));
+  $("export-btn").hidden = !cfg.local || !(state.view === "figures" || (state.view === "entities" && state.entity));
   if (key === toolbarView) {
     syncToolbar();
     return;
@@ -784,6 +789,10 @@ function sumNote(summary) {
     "sum ", el("strong", { text: fmtSum(summary.sum) }));
 }
 
+function figureAmount(fig) {
+  return Number.isFinite(fig.value) ? fmtUsd(fig.value) : "Open to view";
+}
+
 function sortHeader(label, col, sort, onSort, cls = "") {
   const active = sort.col === col;
   const th = el("th", {
@@ -810,6 +819,7 @@ function renderFigures(content) {
   const start = (state.page - 1) * state.pageSize;
   const pageRows = list.slice(start, start + state.pageSize);
   const summary = summarize(list);
+  if (browsing && list.length === model.figures.length) summary.sum = browsing.aggregates.total;
 
   const bar = el("div", { class: "result-bar" },
     el("span", { class: "count" }, el("strong", { text: fmtInt(summary.count) }), ` figure${summary.count === 1 ? "" : "s"} · ${fmtInt(summary.entities)} jurisdiction${summary.entities === 1 ? "" : "s"}`,
@@ -1004,7 +1014,7 @@ function figureRow(fig, list) {
     el("td", { class: "col-program", title: fig.program, text: fig.program }),
     el("td", { class: "col-cat", text: humanize(fig.category) }),
     el("td", { class: "col-label", title: fig.label, text: fig.label }),
-    el("td", { class: "col-amount num", title: `Printed as “${p.source_value_text}”` }, fmtUsd(fig.value)),
+    el("td", { class: "col-amount num", title: p.source_value_text ? `Printed as “${p.source_value_text}”` : "Open the figure to view its amount" }, figureAmount(fig)),
     el("td", { class: "col-notes" }, figureBadges(fig)),
     evidenceCell(fig, list),
   );
@@ -1039,7 +1049,7 @@ function entityRows() {
 
 function renderEntities(content) {
   const list = entityRows();
-  const total = list.reduce((s, e) => s + e.sum, 0);
+  const total = list.some((e) => !Number.isFinite(e.sum)) ? null : list.reduce((s, e) => s + e.sum, 0);
   const figures = list.reduce((s, e) => s + e.figures.length, 0);
   const onSort = (col) => { state.esort = toggleSort(state.esort, col, NUMERIC_SORTS.has(col)); update(); };
   const s = state.esort;
@@ -1142,7 +1152,7 @@ function renderEntityDossier(content) {
             dataset: { id: fig.id },
             title: `${row.fee.names.length > 1 ? `${fig.program}\n` : ""}${fig.label}: printed “${fig.primary.source_value_text}” on PDF page ${fig.page}`,
             onclick: () => openFigure(fig.id, { list: order }),
-          }, fmtUsd(fig.value), fig.restatements.length ? el("sup", { text: `×${fig.rows.length}` }) : null)));
+          }, figureAmount(fig), fig.restatements.length ? el("sup", { text: `×${fig.rows.length}` }) : null)));
         }),
       ));
     }
@@ -1214,7 +1224,7 @@ function feeRows() {
 
 function renderFees(content) {
   const list = feeRows();
-  const total = list.reduce((s, f) => s + f.sum, 0);
+  const total = list.some((f) => !Number.isFinite(f.sum)) ? null : list.reduce((s, f) => s + f.sum, 0);
   const entities = new Set(list.map((f) => f.entity)).size;
   const onSort = (col) => { state.fsort = toggleSort(state.fsort, col, NUMERIC_SORTS.has(col)); update(); };
   const s = state.fsort;
@@ -1310,7 +1320,7 @@ function renderFeePage(content) {
         onclick: (ev) => { if (!ev.target.closest("a,button")) openFigure(fig.id, { list: order }); },
       },
         el("td", { class: "col-fy", text: fmtFy(fy) }),
-        el("td", { class: "num", text: fmtUsd(fig.value) }),
+        el("td", { class: "num", text: figureAmount(fig) }),
         el("td", { class: `col-printed ${changed ? "" : "same"}`, title: fig.program, text: changed ? fig.program : "″" }),
         el("td", {}, el("button", { class: "pdf-btn", type: "button", text: `p.${fig.page}`, title: "Open outlined page", onclick: () => openFigure(fig.id, { list: order }) })),
         joinedCell(join),
@@ -1330,6 +1340,7 @@ function renderFeePage(content) {
 
 // One bar per fiscal year in the fee's span; a year with no figure has none.
 function feeChart(fee, span) {
+  if (fee.figures.some((f) => !Number.isFinite(f.value))) return para("muted", "Open a figure to view its amount. The year chart appears after all figures in this fee have been opened.");
   const W = 760;
   const H = 170;
   const m = { top: 10, right: 8, bottom: 24, left: 64 };
@@ -1484,7 +1495,7 @@ function renderStatsView(content) {
       tile("Source publications", fmtInt(model.sources.length)),
       tile("Fiscal years", fmtInt(model.years.length), `${fmtFy(firstFy)} to ${fmtFy(lastFy)}`)),
     el("h3", { class: "section-label", text: "Figures by fiscal year" }),
-    coverageChart(coverageByYear(figs)),
+    coverageChart(browsing?.aggregates.years || coverageByYear(figs)),
     el("div", { class: "stats-cols" },
       el("div", { class: "stats-col" },
         statsBlock("Fee category", breakdownTable("Category", figs, (f) => f.category, (v) => humanize(v), (v) => ({ cat: v || NONE })))),
@@ -1493,10 +1504,10 @@ function renderStatsView(content) {
         statsBlock("Land use", breakdownTable("Land use", figs, (f) => scopeKey(f.primary.land_use_scope), scopeLabel, (v) => ({ scope: v || NONE }))),
         statsBlock("Figures", shareTable(figs, [
           ["Arithmetic check", (f) => f.arith, { arith: "yes" }],
-          ["Accounting basis stated", basisStated],
+          ...(cfg.local ? [["Accounting basis stated", basisStated]] : []),
           ["Restated", (f) => f.restatements.length > 0],
           ["Printed in thousands", (f) => f.thousands],
-          ["Printed zero", (f) => f.zero],
+          ...(cfg.local ? [["Printed zero", (f) => f.zero]] : []),
         ])))),
     el("div", { id: "stats-release" }, el("p", { class: "muted", text: "Loading…" })),
   ));
@@ -1542,7 +1553,8 @@ function breakdownTable(head, figs, key, label, filters) {
     if (!g) groups.set(k, (g = { k, figures: 0, entities: new Set(), sum: 0 }));
     g.figures += 1;
     g.entities.add(f.entity);
-    if (Number.isFinite(f.value)) g.sum += f.value;
+    if (!Number.isFinite(f.value)) g.unknown = true;
+    else if (f.primary._primary) g.sum += f.value;
   }
   const name = (k) => (k ? label(k) : "Not recorded");
   const rows = [...groups.values()]
@@ -1551,7 +1563,7 @@ function breakdownTable(head, figs, key, label, filters) {
       el("td", {}, filterLink(name(g.k), filters(g.k))),
       el("td", { class: "num", text: fmtInt(g.figures) }),
       el("td", { class: "num", text: fmtInt(g.entities.size) }),
-      el("td", { class: "num", text: fmtSum(g.sum) })));
+      el("td", { class: "num", text: fmtSum(g.unknown ? null : g.sum) })));
   return statsTable([head, "Figures", "Jurisdictions", "Sum"], rows);
 }
 
@@ -1575,7 +1587,7 @@ async function loadStats() {
     ensureManifest(),
   ]);
   const tables = await Promise.all(DATA_TABLES.map(async (name) => {
-    const rows = name === "reported-fee-collections" ? model.rows.length : parseCsvObjects(await fetchText(`data/${name}.csv`)).rows.length;
+    const rows = name === "reported-fee-collections" ? (browsing?.rowCount ?? model.rows.length) : cfg.local ? parseCsvObjects(await fetchText(`data/${name}.csv`)).rows.length : "Unavailable";
     return { name, rows };
   }));
   statsData = { cohort, refusals, manifest, tables };
@@ -1603,7 +1615,7 @@ function fillStats() {
           kv("Total rows", fmtInt(cohort.total_rows_in_data_file))))),
       statsBlock("Tables", statsTable(["File", "Rows"], tables.map((t) => el("tr", {},
         el("td", { text: `${t.name}.csv` }),
-        el("td", { class: "num", text: fmtInt(t.rows) }))))),
+        el("td", { class: "num", text: t.rows === "Unavailable" ? t.rows : fmtInt(t.rows) }))))),
       el("section", { class: "stats-block" },
         el("h3", { class: "section-label", text: "Release" }),
         el("table", { class: "grid kv" }, el("tbody", {},
@@ -1611,8 +1623,7 @@ function fillStats() {
           kv("Built (UTC)", manifest.built_utc || ""),
           kv("Files, each with a SHA-256", fmtInt(manifest.file_count || manifest.files.size)),
           kv("Total size", fmtBytes(manifest.total_bytes)),
-          links("Method", doc("docs/methodology.md", "methodology"), doc("docs/review-process.md", "review process"),
-            doc("docs/data-dictionary.md", "data dictionary"), doc("docs/coverage.md", "coverage and gaps")))))),
+          links("Method", el("a", { href: "https://github.com/aimesy/mfa#data", target: "_blank", rel: "noopener", text: "Viewer data policy" })))))),
     el("div", { class: "stats-col" },
       statsBlock("Refusals", statsTable(["Reason", "Rows", "Agencies", "Documents"], refusals.map((r) => el("tr", {},
         el("td", { text: humanize(r.refusal_reason_code) }),
@@ -1807,6 +1818,41 @@ function renderPanel() {
   }
   panel.hidden = false;
   $("workspace").classList.add("with-panel");
+  if (fig?.primary._summary || src?._summary) {
+    const kind = fig ? "figures" : "source-records";
+    const id = fig ? fig.id : src.source_id;
+    const detailId = fig ? fig.primary._detailId || id : id;
+    const detailKey = `${kind}/${detailId}`;
+    panel.replaceChildren(panelTop([]), para("muted", "Loading record."));
+    if (!detailRequests.has(detailKey)) {
+      const promise = fetchJson(`${kind}/${encodeURIComponent(detailId)}.json`).then((data) => {
+        if (!data) throw new Error("This record is no longer published.");
+        if (fig) {
+          const rows = new Map(data.rows.map((r) => [r.record_id, r]));
+          browsing.rows = browsing.rows.map((r) => rows.get(r.record_id) || r);
+          const sources = new Map();
+          for (const s of data.sources) {
+            if (!sources.has(s.source_id)) sources.set(s.source_id, []);
+            sources.get(s.source_id).push(s);
+          }
+          browsing.sources = browsing.sources.map((s) => sources.get(s.source_id)?.shift() || s);
+          columns = data.columns;
+          for (const entry of data.hashes || []) detailHashes.set(entry.path, entry.sha256);
+        } else browsing.sources = browsing.sources.map((s) => s.source_id === id ? data : s);
+        model = buildModel(browsing.rows, browsing.sources, undefined, browsing.aggregates);
+        listCache = { key: "", list: [] };
+        contentKey = "";
+        indexPages();
+        panelKey = "";
+        renderAll();
+      }).catch((err) => {
+        detailRequests.delete(detailKey);
+        if (state.figure === id || state.doc === id) panel.replaceChildren(panelTop([]), para("muted", String(err.message || err)), el("button", { type: "button", class: "btn", text: "Retry", onclick: renderPanel }));
+      });
+      detailRequests.set(detailKey, promise);
+    }
+    return;
+  }
   if (fig) {
     document.querySelectorAll(`[data-id="${CSS.escape(fig.id)}"]`).forEach((n) => n.classList.add(n.matches("tr") ? "selected-row" : "selected"));
   } else {
@@ -2107,7 +2153,7 @@ function renderDocPanel(panel, src) {
             el("td", {}, el("button", { class: "pdf-btn", type: "button", text: `p.${f.page}`, onclick: (ev) => { ev.stopPropagation(); viewer.goToPage(f.page); state.pg = f.page; writeUrl(false); } })),
             el("td", { text: fmtFy(f.fy) }),
             el("td", { text: f.program }),
-            el("td", { class: "num", text: fmtUsd(f.value) }))))) : para("", "None.")),
+            el("td", { class: "num", text: figureAmount(f) }))))) : para("", "None.")),
       section("Source", el("dl", { class: "kv-list" },
         el("dt", { text: "Source id" }), el("dd", {}, el("code", { class: "wrap", text: src.source_id })),
         el("dt", { text: "SHA-256" }), el("dd", {}, el("code", { class: "wrap", text: src.source_sha256 })),
@@ -2132,6 +2178,7 @@ function renderDocPanel(panel, src) {
 // ============================================================ EXPORT
 
 function exportCsv() {
+  if (!cfg.local) return;
   let figs = [];
   let name = "mfa-figures";
   if (state.view === "figures") figs = currentFigures();

@@ -2,3 +2,5 @@
 /about/
 /jurisdictions/
 /sitemap.xml
+/.qa-tmp/
+__pycache__/
