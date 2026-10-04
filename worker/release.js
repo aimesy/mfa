@@ -238,6 +238,10 @@ export async function handleGateway(request, env, { release, counters, fetchImpl
   const res = await release(new Request(new URL(url.pathname, url.origin), { method, headers }));
 
   const out = new Response(res.body, res);
+  // Keep shared caching inside Release. A browser response must pass the
+  // current session gate on every fetch, including a previously opened PDF.
+  out.headers.set("Cache-Control", "private, no-store");
+  for (const name of ["CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control", "Age", "Expires"]) out.headers.delete(name);
   for (const [k, v] of Object.entries(corsHeaders(origin))) out.headers.set(k, v);
   addVary(out.headers, "Origin");
   out.headers.set("X-Robots-Tag", "noindex");

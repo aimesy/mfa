@@ -84,6 +84,7 @@ async function release(path, { headers = {}, method = "GET", e = {}, upstream } 
   assert.match(res.headers.get("Vary"), /Origin/);
   assert.equal(res.headers.get("Access-Control-Expose-Headers"), "Content-Range, Content-Length, Accept-Ranges, Retry-After, X-Check, X-Limit, X-MFA-Session, X-Trusted-Key");
   assert.equal(res.headers.get("X-Robots-Tag"), "noindex");
+  assert.equal(res.headers.get("Cache-Control"), "private, no-store");
   assert.equal(await res.text(), "body");
 
   const viaReferer = await gateway(`/${SHA}/evidence/x.pdf`, { headers: { Referer: "https://aimesy.github.io/mfa/?view=figures" } });
@@ -92,6 +93,9 @@ async function release(path, { headers = {}, method = "GET", e = {}, upstream } 
 
   const kept = await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE }, reply: () => new Response("x", { headers: { Vary: "Accept-Encoding" } }) });
   assert.equal(kept.res.headers.get("Vary"), "Accept-Encoding, Origin");
+  const browserOnly = await gateway(`/${SHA}/figures/g0.json`, { headers: { Origin: SITE }, reply: () => new Response("{}", { headers: { "Cache-Control": "public, max-age=31536000, immutable", "CDN-Cache-Control": "max-age=31536000", "Cloudflare-CDN-Cache-Control": "max-age=31536000", "Surrogate-Control": "max-age=31536000", Age: "60", Expires: "Wed, 21 Oct 2037 07:28:00 GMT" } }) });
+  assert.equal(browserOnly.res.headers.get("Cache-Control"), "private, no-store");
+  for (const name of ["CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control", "Age", "Expires"]) assert.equal(browserOnly.res.headers.has(name), false);
 }
 
 // Query stripping and Range forwarding: the inner request carries the path and Range only.
