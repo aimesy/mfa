@@ -728,11 +728,6 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
   .amount { font-size: 1.45rem; }
 }
 
-/* Landing intro: static text for readers and search engines (index.html). */
-.site-intro { flex: 0 0 auto; padding: 0.45rem 1rem; border-bottom: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font-size: 0.8rem; line-height: 1.45; }
-.site-intro p { margin: 0; max-width: 72rem; }
-.site-intro a { white-space: nowrap; }
-
 /* Turnstile, shown only when Cloudflare asks for an interaction. */
 /* Laid out but invisible until needed, so the Turnstile frame inside can run. */
 .human-check { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 1rem; visibility: hidden; pointer-events: none; }

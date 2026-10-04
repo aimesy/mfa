@@ -720,7 +720,6 @@ let panelKey = "";
 
 function renderAll() {
   if (!model) return;
-  $("site-intro").hidden = !(state.view === DEFAULT_VIEW && !state.entity);
   renderTabs();
   renderToolbar();
   const ck = JSON.stringify([state.view, state.filters, state.sort, state.page, state.pageSize, state.entity,
