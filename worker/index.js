@@ -15,12 +15,7 @@ export class Release extends WorkerEntrypoint {
       if (res.status === 404) return null;
       return res.ok ? res.json() : undefined;
     };
-    const readInput = async (ref, path) => {
-      const response = await this.ctx.exports.Release.fetch(new Request(new URL(`/_projection-input/${ref}/${path}`, request.url)));
-      if (!response.ok) throw new Error("Projection input unavailable");
-      return response.text();
-    };
-    return handleRelease(request, this.env, fetch, lookup, readInput);
+    return handleRelease(request, this.env, fetch, lookup);
   }
 }
 

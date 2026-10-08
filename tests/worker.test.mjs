@@ -93,9 +93,22 @@ async function release(path, { headers = {}, method = "GET", e = {}, upstream } 
 
   const kept = await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE }, reply: () => new Response("x", { headers: { Vary: "Accept-Encoding" } }) });
   assert.equal(kept.res.headers.get("Vary"), "Accept-Encoding, Origin");
-  const browserOnly = await gateway(`/${SHA}/figures/g0.json`, { headers: { Origin: SITE }, reply: () => new Response("{}", { headers: { "Cache-Control": "public, max-age=31536000, immutable", "CDN-Cache-Control": "max-age=31536000", "Cloudflare-CDN-Cache-Control": "max-age=31536000", "Surrogate-Control": "max-age=31536000", Age: "60", Expires: "Wed, 21 Oct 2037 07:28:00 GMT" } }) });
-  assert.equal(browserOnly.res.headers.get("Cache-Control"), "private, no-store");
-  for (const name of ["CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control", "Age", "Expires"]) assert.equal(browserOnly.res.headers.has(name), false);
+  // Shared caches keep nothing. The browser keeps an index file at a commit,
+  // never a document (it must pass the gate each time), /ref or main.
+  const cached = { "Cache-Control": "public, max-age=31536000, immutable", "CDN-Cache-Control": "max-age=31536000", "Cloudflare-CDN-Cache-Control": "max-age=31536000", "Surrogate-Control": "max-age=31536000", Age: "60", Expires: "Wed, 21 Oct 2037 07:28:00 GMT" };
+  const index = await gateway(`/${SHA}/data/reported-fee-collections.csv`, { headers: { Origin: SITE }, reply: () => new Response("a,b\n", { headers: cached }) });
+  assert.equal(index.res.headers.get("Cache-Control"), "private, max-age=31536000, immutable");
+  const head = await gateway("/main/sources/index.csv", { headers: { Origin: SITE }, reply: () => new Response("a,b\n", { headers: { "Cache-Control": "public, max-age=60" } }) });
+  assert.equal(head.res.headers.get("Cache-Control"), "private, no-store");
+  const ref = await gateway("/ref", { headers: { Origin: SITE }, reply: () => new Response(SHA, { headers: { "Cache-Control": "public, max-age=60" } }) });
+  assert.equal(ref.res.headers.get("Cache-Control"), "private, no-store");
+  const document = await gateway(`/${SHA}/evidence/x.pdf`, { headers: { Origin: SITE }, reply: () => new Response("%PDF", { headers: cached }) });
+  assert.equal(document.res.headers.get("Cache-Control"), "private, no-store");
+  const asset = await gateway("/releases/download/pdf-napa-001/x.pdf", { headers: { Origin: SITE }, reply: () => new Response("%PDF", { headers: cached }) });
+  assert.equal(asset.res.headers.get("Cache-Control"), "private, no-store");
+  const missing = await gateway(`/${SHA}/manifest.json`, { headers: { Origin: SITE }, reply: () => new Response("Not found\n", { status: 404, headers: { "Cache-Control": "public, max-age=31536000, immutable" } }) });
+  assert.equal(missing.res.headers.get("Cache-Control"), "private, no-store");
+  for (const r of [index, document]) for (const name of ["CDN-Cache-Control", "Cloudflare-CDN-Cache-Control", "Surrogate-Control", "Age", "Expires"]) assert.equal(r.res.headers.has(name), false);
 }
 
 // Query stripping and Range forwarding: the inner request carries the path and Range only.
