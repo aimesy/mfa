@@ -303,6 +303,7 @@ function aboutPage(summary) {
 <li><strong>Stats.</strong> Figures by fiscal year, fee category and jurisdiction type.</li>
 </ul>
 <p>Every view is in the URL, so any figure, filter or page is a link.</p>
+<p><strong>Funding.</strong> Since October 12, 2026, this database has been developed under a research fellowship from the California YIMBY Education Fund, a 501(c)(3) nonprofit charitable organization.</p>
 <p class="foot-links"><a href="${SITE}/">Open the database</a> · <a href="/jurisdictions/">Jurisdictions by county</a> · <a href="${TERMS}">Terms of use</a></p>
 `;
   return page({
