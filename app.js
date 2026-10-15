@@ -2024,6 +2024,7 @@ const COVERAGE_STATUSES = [
   ["gaps", "A year not harvested"],
   ["waiting", "Harvested, not yet processed"],
   ["done", "Every year processed"],
+  ["nofee", "Charges no such fees"],
 ];
 const COVERAGE_SORTS = ["name", "type", "county", "harvested", "processed"];
 const DEFAULT_COVERAGE_SORT = { col: "name", dir: "asc" };
@@ -2040,7 +2041,7 @@ function loadCoverage() {
         ...d,
         agencies: d.agencies.map((a) => ({
           name: a[col.name], cls: d.classes[a[col.class]].key, type: d.types[a[col.type]], county: d.counties[a[col.county]],
-          h: a[col.harvested], p: a[col.processed], names: a[col.release_names] || [],
+          h: a[col.harvested], p: a[col.processed], nofee: Boolean(a[col.no_fees]), names: a[col.release_names] || [],
         })),
       };
       return coverageData;
@@ -2075,8 +2076,11 @@ function coverageScope(d) {
   return d.agencies.filter((a) => (!state.ccls || a.cls === state.ccls) && choiceIs(state.ctype, a.type) && choiceIs(state.ccounty, a.county));
 }
 
+// Harvested and processed counts, plus the share each bar fills in yellow:
+// agencies shown to charge no such fees, for what they have not harvested
+// (or not processed), since they have no report to collect.
 function coverageTally(list, m) {
-  const t = { n: list.length, anyH: 0, anyP: 0, years: list.length * bitCount(m), yH: 0, yP: 0 };
+  const t = { n: list.length, anyH: 0, anyP: 0, years: list.length * bitCount(m), yH: 0, yP: 0, nfH: 0, nfP: 0, ynfH: 0, ynfP: 0 };
   for (const a of list) {
     const h = a.h & m;
     const p = a.p & m;
@@ -2084,6 +2088,12 @@ function coverageTally(list, m) {
     if (p) t.anyP += 1;
     t.yH += bitCount(h);
     t.yP += bitCount(p);
+    if (a.nofee) {
+      if (!h) t.nfH += 1;
+      if (!p) t.nfP += 1;
+      t.ynfH += bitCount(m & ~h);
+      t.ynfP += bitCount(m & ~p);
+    }
   }
   return t;
 }
@@ -2096,16 +2106,25 @@ function fmtPct(n, d) {
   return `${n === d || !n ? Math.round(pct) : pct.toFixed(1)}%`;
 }
 
-function coverageBar(n, d, kind, what) {
+// A bar fills with the harvested (or processed) count, then in yellow with
+// the agencies that charge no such fees; the percentage is the whole fill.
+function coverageBar(n, d, kind, what, nf = 0) {
   const pct = d ? (100 * n) / d : 0;
-  const text = `${fmtPct(n, d)}: ${fmtInt(n)} of ${fmtInt(d)} ${what} ${kind}`;
+  const nfPct = d ? (100 * nf) / d : 0;
+  const text = nf
+    ? `${fmtPct(n + nf, d)} filled: ${fmtInt(n)} ${kind} and ${fmtInt(nf)} charging no such fees, of ${fmtInt(d)} ${what}`
+    : `${fmtPct(n, d)}: ${fmtInt(n)} of ${fmtInt(d)} ${what} ${kind}`;
   return el("div", { class: `cov-bar ${kind}`, title: text },
     el("span", {
-      class: "cov-track", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(d), "aria-valuenow": String(n),
+      class: "cov-track", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(d), "aria-valuenow": String(n + nf),
       "aria-valuetext": text, "aria-label": `${what} ${kind}`,
-    }, el("span", { class: "cov-fill", style: { width: n ? `max(2px, ${pct}%)` : "0" } })),
-    el("span", { class: "cov-pct", text: fmtPct(n, d) }),
-    el("span", { class: "cov-of", text: `${fmtInt(n)} / ${fmtInt(d)}` }));
+    },
+    el("span", { class: "cov-fill", style: { width: n ? `max(2px, ${pct}%)` : "0" } }),
+    nf ? el("span", { class: "cov-fill cov-nofee", style: { width: `max(2px, ${nfPct}%)` } }) : null),
+    el("span", { class: "cov-pct", text: fmtPct(n + nf, d) }),
+    el("span", { class: "cov-of" }, nf
+      ? [`${fmtInt(n)}`, el("span", { class: "cov-nf", text: `+${fmtInt(nf)}` }), ` / ${fmtInt(d)}`]
+      : `${fmtInt(n)} / ${fmtInt(d)}`));
 }
 
 const barCell = (...args) => el("td", { class: "cov-bar-cell" }, coverageBar(...args));
@@ -2118,11 +2137,11 @@ function coverageTable(head, groups, m) {
     return el("tr", { class: cls || "" },
       el("th", { scope: "row" }, label),
       el("td", { class: "num", text: fmtInt(t.n) }),
-      barCell(t.anyH, t.n, "harvested", "jurisdictions"),
-      barCell(t.anyP, t.n, "processed", "jurisdictions"),
+      barCell(t.anyH, t.n, "harvested", "jurisdictions", t.nfH),
+      barCell(t.anyP, t.n, "processed", "jurisdictions", t.nfP),
       el("td", { class: "num cov-split", text: fmtInt(t.years) }),
-      barCell(t.yH, t.years, "harvested", "jurisdiction-years"),
-      barCell(t.yP, t.years, "processed", "jurisdiction-years"));
+      barCell(t.yH, t.years, "harvested", "jurisdiction-years", t.ynfH),
+      barCell(t.yP, t.years, "processed", "jurisdiction-years", t.ynfP));
   });
   return el("table", { class: "grid cov-grid" },
     el("thead", {},
@@ -2145,15 +2164,19 @@ function coverageYearTable(d, list, m) {
     const b = 1 << i;
     let h = 0;
     let p = 0;
+    let nfH = 0;
+    let nfP = 0;
     for (const a of list) {
       if (a.h & b) h += 1;
+      else if (a.nofee) nfH += 1;
       if (a.p & b) p += 1;
+      else if (a.nofee) nfP += 1;
     }
     return el("tr", { class: m & b ? "" : "cov-out" },
       el("th", { scope: "row", text: `FY ${fmtFy(fy)}` }),
       el("td", { class: "num", text: fmtInt(list.length) }),
-      barCell(h, list.length, "harvested", `FY ${fmtFy(fy)} reports`),
-      barCell(p, list.length, "processed", `FY ${fmtFy(fy)} reports`));
+      barCell(h, list.length, "harvested", `FY ${fmtFy(fy)} reports`, nfH),
+      barCell(p, list.length, "processed", `FY ${fmtFy(fy)} reports`, nfP));
   }).reverse();
   return el("table", { class: "grid cov-grid cov-years-grid" },
     el("thead", {}, el("tr", {},
@@ -2195,10 +2218,11 @@ function coverageLink(text, params) {
 function coverageStatus(a, m) {
   const h = a.h & m;
   const p = a.p & m;
-  if (state.cstat === "none") return !h;
-  if (state.cstat === "gaps") return h !== m;
+  if (state.cstat === "none") return !h && !a.nofee;
+  if (state.cstat === "gaps") return h !== m && !a.nofee;
   if (state.cstat === "waiting") return (h & ~p) !== 0;
   if (state.cstat === "done") return p === m;
+  if (state.cstat === "nofee") return a.nofee;
   return true;
 }
 
@@ -2210,7 +2234,7 @@ function coverageRows(scope, m) {
   const sign = dir === "asc" ? 1 : -1;
   const value = {
     name: (a) => a.name, type: (a) => humanize(a.type), county: (a) => a.county,
-    harvested: (a) => bitCount(a.h & m), processed: (a) => bitCount(a.p & m),
+    harvested: (a) => (a.nofee ? bitCount(m) : bitCount(a.h & m)), processed: (a) => (a.nofee ? bitCount(m) : bitCount(a.p & m)),
   }[col];
   return list.sort((x, y) => {
     const a = value(x);
@@ -2223,8 +2247,8 @@ function coverageRows(scope, m) {
 function coverageYearCells(d, a, m) {
   return el("span", { class: "cov-yrs" }, d.years.map((fy, i) => {
     const b = 1 << i;
-    const kind = a.p & b ? "p" : a.h & b ? "h" : "m";
-    const said = { p: "processed", h: "harvested, not yet processed", m: "not harvested" }[kind];
+    const kind = a.p & b ? "p" : a.h & b ? "h" : a.nofee ? "n" : "m";
+    const said = { p: "processed", h: "harvested, not yet processed", n: "charges no such fees", m: "not harvested" }[kind];
     return el("span", { class: `cov-yr ${kind}${m & b ? "" : " out"}${fy === RECENT_FROM ? " first" : ""}`, title: `FY ${fmtFy(fy)}: ${said}` });
   }));
 }
@@ -2244,8 +2268,8 @@ function coverageList(d, scope, m) {
     el("td", { text: humanize(a.type) }),
     el("td", { text: a.county || "" }),
     el("td", { class: "cov-yrs-cell" }, coverageYearCells(d, a, m)),
-    barCell(bitCount(a.h & m), span, "harvested", "years"),
-    barCell(bitCount(a.p & m), span, "processed", "years"))));
+    barCell(bitCount(a.h & m), span, "harvested", "years", a.nofee ? bitCount(m & ~a.h) : 0),
+    barCell(bitCount(a.p & m), span, "processed", "years", a.nofee ? bitCount(m & ~a.p) : 0))));
   if (!list.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 6, text: "No jurisdiction matches." })));
   const page = (n) => () => { state.cpage = n; update(); $("cov-list")?.scrollIntoView({ block: "start" }); };
   const swatch = (kind, text) => el("span", { class: "cov-key" }, el("span", { class: `cov-yr ${kind}` }), text);
@@ -2253,7 +2277,7 @@ function coverageList(d, scope, m) {
     el("h3", { class: "section-label", id: "cov-list", text: "Jurisdictions" }),
     el("div", { class: "result-bar" },
       el("span", {}, el("strong", { text: fmtInt(list.length) }), ` jurisdiction${list.length === 1 ? "" : "s"}`),
-      el("span", { class: "cov-legend" }, swatch("p", "Processed"), swatch("h", "Harvested, not yet processed"), swatch("m", "Not harvested"))),
+      el("span", { class: "cov-legend" }, swatch("p", "Processed"), swatch("h", "Harvested, not yet processed"), swatch("n", "Charges no such fees"), swatch("m", "Not harvested"))),
     el("div", { class: "table-scroll" }, el("table", { class: "grid cov-list" },
       el("thead", {}, el("tr", {},
         sortHeader("Jurisdiction", "name", s, onSort, "col-entity"),
@@ -2268,6 +2292,13 @@ function coverageList(d, scope, m) {
       el("span", { class: "muted", text: `page ${state.cpage} of ${pages}` }),
       el("button", { class: "btn", type: "button", text: "Next", disabled: state.cpage >= pages, onclick: page(state.cpage + 1) })),
   ];
+}
+
+// A headline figure: the bar's whole fill, with what makes it up.
+function coverageTile(label, n, nf, d, extra = "") {
+  return tile(label, fmtPct(n + nf, d), nf
+    ? `${fmtInt(n)} plus ${fmtInt(nf)} with no such fees, of ${fmtInt(d)}${extra}`
+    : `${fmtInt(n)} of ${fmtInt(d)}${extra}`);
 }
 
 function renderCoverage(content) {
@@ -2310,15 +2341,18 @@ function fillCoverage(view, d) {
       el("strong", { text: "Harvested" }),
       " means its annual fee report for that year (Gov. Code § 66006) is in hand, or the release already publishes figures for it. ",
       el("strong", { text: "Processed" }),
-      " means the release publishes figures for it. A year counts only once its report is in hand: an agency that charges no development fees, or never wrote a report, still counts as not harvested, and reports collected but not yet matched to an agency and a year are not counted."),
+      " means the release publishes figures for it. ",
+      el("span", { class: "cov-key" }, el("span", { class: "cov-yr n" }), el("strong", { text: "Yellow" })),
+      " fills the share of agencies shown not to charge development fees (so far, special districts screened on their legal powers and accounts): they have no report to harvest. Otherwise a year counts only once its report is in hand: an agency that never wrote a report still counts as not harvested, and reports collected but not yet matched to an agency and a year are not counted."),
     el("p", { class: "muted" },
       `Counting ${range}${narrowed.length ? `, ${narrowed.join(", ")}` : ""}. Inventory as of ${when}; release ${String(d.release_commit || "").slice(0, 7)}.`,
-      leftOut.length ? ` Left out of every count, holding no report: ${leftOut.join("; ")}.` : ""),
+      leftOut.length ? ` Left out of every count, holding no report: ${leftOut.join("; ")}.` : "",
+      t.nfH ? ` ${fmtInt(t.nfH)} of the ${fmtInt(t.n)} jurisdictions counted charge no such fees.` : ""),
     el("div", { class: "tiles" },
-      tile("Jurisdictions harvested", fmtPct(t.anyH, t.n), `${fmtInt(t.anyH)} of ${fmtInt(t.n)}, any year`),
-      tile("Jurisdictions processed", fmtPct(t.anyP, t.n), `${fmtInt(t.anyP)} of ${fmtInt(t.n)}, any year`),
-      tile("Jurisdiction-years harvested", fmtPct(t.yH, t.years), `${fmtInt(t.yH)} of ${fmtInt(t.years)}`),
-      tile("Jurisdiction-years processed", fmtPct(t.yP, t.years), `${fmtInt(t.yP)} of ${fmtInt(t.years)}`)),
+      coverageTile("Jurisdictions harvested", t.anyH, t.nfH, t.n, ", any year"),
+      coverageTile("Jurisdictions processed", t.anyP, t.nfP, t.n, ", any year"),
+      coverageTile("Jurisdiction-years harvested", t.yH, t.ynfH, t.years),
+      coverageTile("Jurisdiction-years processed", t.yP, t.ynfP, t.years)),
     statsBlock("By class", coverageTable("Class", byClass, m)),
     statsBlock("By fiscal year", coverageYearTable(d, scope, m)),
     statsBlock("By agency type", coverageTable("Type", coverageGroups(scope, (a) => a.type, (k) => (k ? humanize(k) : "(not recorded)"), "ctype"), m)),

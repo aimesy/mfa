@@ -30,6 +30,7 @@
   --warn-bg: #fbf3df;
   --warn-ink: #725414;
   --bar-fill: #9a7a35;
+  --nofee: #f0c419;
   --row-hover: #f8f4ec;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --font-serif: Georgia, "Times New Roman", serif;
@@ -710,19 +711,22 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .cov-grid .cov-out > * { color: var(--ink-4); }
 .cov-grid .cov-out .cov-fill { opacity: 0.4; }
 .cov-bar-cell { min-width: 12.5rem; }
-.cov-bar { display: grid; grid-template-columns: minmax(4.5rem, 1fr) 3.4rem 6.6rem; align-items: center; gap: 0.45rem; font-family: var(--font-mono); font-size: 0.68rem; font-variant-numeric: tabular-nums; }
-.cov-track { display: block; height: 0.62rem; background: var(--paper-3); border-radius: 1px; overflow: hidden; }
-.cov-fill { display: block; height: 100%; background: var(--link); }
+.cov-bar { display: grid; grid-template-columns: minmax(4.5rem, 1fr) 3.4rem 8.4rem; align-items: center; gap: 0.45rem; font-family: var(--font-mono); font-size: 0.68rem; font-variant-numeric: tabular-nums; }
+.cov-track { display: flex; height: 0.62rem; background: var(--paper-3); border-radius: 1px; overflow: hidden; }
+.cov-fill { display: block; flex: none; height: 100%; background: var(--link); }
 .cov-bar.processed .cov-fill { background: var(--ok); }
+.cov-bar .cov-fill.cov-nofee { background: var(--nofee); }
+.cov-nf { color: var(--warn-ink); }
 .cov-pct { text-align: right; color: var(--ink); }
 .cov-of { color: var(--ink-3); white-space: nowrap; }
 .cov-list .cov-bar-cell { min-width: 10rem; }
-.cov-list .cov-bar { grid-template-columns: minmax(3rem, 1fr) 3rem 2.6rem; }
+.cov-list .cov-bar { grid-template-columns: minmax(3rem, 1fr) 3rem 3.6rem; }
 .cov-yrs-cell { white-space: nowrap; }
 .cov-yrs { display: inline-flex; gap: 2px; vertical-align: middle; }
 .cov-yr { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 1px; background: var(--paper-3); border: 1px solid var(--rule); }
 .cov-yr.h { background: var(--link); border-color: var(--link); }
 .cov-yr.p { background: var(--ok); border-color: var(--ok); }
+.cov-yr.n { background: var(--nofee); border-color: var(--nofee); }
 .cov-yr.out { opacity: 0.3; }
 .cov-yr.first { margin-left: 5px; }
 .cov-legend { display: inline-flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; }

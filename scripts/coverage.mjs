@@ -9,9 +9,11 @@
 // harvested means an annual fee report for that year is held (the
 // inventory's annual_years_held_provisional) or the release publishes
 // figures for it; processed means the release publishes figures for it (its
-// published_years). Roster rows the inventory screened out are left out of
-// every count: merged duplicates, entries recorded on another roster, and
-// districts shown not to collect development fees. None holds a report.
+// published_years). Agencies the inventory shows do not charge development
+// fees (screening_status excluded_with_evidence) stay in the counts with
+// no_fees set: the tab fills their share of each bar in yellow, since they
+// have no report to harvest. Merged duplicates and entries recorded on another
+// roster are left out of every count; none holds a report.
 
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
@@ -30,8 +32,8 @@ const CLASSES = [
 const LEFT_OUT = {
   merged_duplicate: "Merged duplicates",
   other_lane_reference: "Recorded on another roster",
-  excluded_with_evidence: "Shown not to collect development fees",
 };
+const NO_FEES = "excluded_with_evidence";
 const RELEASE_FILE = "reported-fee-collections.csv";
 
 const summary = JSON.parse(readFileSync(join(dir, "inventory-summary.json"), "utf8"));
@@ -75,7 +77,8 @@ for (const a of Object.values(inventory)) {
   for (const recs of Object.values(a.published_records || {})) {
     for (const r of recs) if (r.file === RELEASE_FILE && r.row?.receiving_entity) names.add(r.row.receiving_entity.trim());
   }
-  const row = [a.agency_name.trim(), classIndex.get(a.class), indexOf(types, a.agency_type || ""), indexOf(counties, a.county || ""), harvested, processed];
+  const row = [a.agency_name.trim(), classIndex.get(a.class), indexOf(types, a.agency_type || ""), indexOf(counties, a.county || ""), harvested, processed,
+    a.screening_status === NO_FEES ? 1 : 0];
   if (names.size) row.push([...names].sort());
   agencies.push(row);
 }
@@ -93,7 +96,7 @@ const data = {
   })),
   types,
   counties,
-  columns: ["name", "class", "type", "county", "harvested", "processed", "release_names"],
+  columns: ["name", "class", "type", "county", "harvested", "processed", "no_fees", "release_names"],
   agencies,
 };
 for (const c of data.classes) {
@@ -105,4 +108,4 @@ for (const c of data.classes) {
 const tmp = `${out}.tmp`;
 writeFileSync(tmp, `${JSON.stringify(data)}\n`);
 renameSync(tmp, out);
-console.log(`${out}: ${agencies.length} agencies, ${years[0]} to ${years[years.length - 1]}, inventory ${summary.written_utc}, release ${String(summary.published_commit).slice(0, 7)}`);
+console.log(`${out}: ${agencies.length} agencies (${agencies.filter((r) => r[6]).length} charge no development fees), ${years[0]} to ${years[years.length - 1]}, inventory ${summary.written_utc}, release ${String(summary.published_commit).slice(0, 7)}`);
