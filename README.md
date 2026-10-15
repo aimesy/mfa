@@ -55,10 +55,12 @@ URL parameters:
 | `view` | `entities` (default), `fees`, `sources`, `figures`, `stats` (`about` still opens it) |
 | `f=<figure_group_id>` | open that figure's evidence; `tab=original&pg=N` for the original report |
 | `doc=<source_id>` | open that report |
-| `q`, `type`, `county`, `cat`, `scope`, `from`, `to`, `arith`, `entity`, `source`, `sort`, `page`, `size` | figures filters |
+| `q`, `type`, `county`, `cat`, `law`, `area`, `scope`, `from`, `to`, `arith`, `entity`, `source`, `sort`, `page`, `size` | figures filters |
 | `e=<name>` | open a jurisdiction (with `view=fees&fee=<printed name>`, that fee) |
 | `fq`, `fcat`, `ftype`, `fcounty`, `fentity`, `fsort` | fees filters |
 | `sq`, `sentity`, `ssort` | sources filters |
+
+The figures filter boxes (`entity`, `cat`, `law`, `area`, `type`, `county`, `scope`) each take several values joined with `|`, as `cat=water/supply|water/stormwater`. Values in one box match any of them; separate boxes must all match. `__none` picks rows with no value. A `cat` value is a namespace (`water`), a subcategory (`water/wastewater`), or a namespace with a trailing slash (`water/`) for its rows with no subcategory; an older link's release `fee_category` code (`cat=sewer`) still opens as its namespace and subcategory. The taxonomy is in `lib/taxonomy.js`: the law a fee is charged under (`law`), what it pays for (`cat`), and whether it applies to the whole agency or only part of it (`area`). A row takes the release's `fee_law`, `fee_namespace`, `fee_subcategory`, `geographic_scope` and `area_name` where its reviewers have recorded them; until then its category is read from `fee_category` (or, marked as placed from the fee name, from the fee name), and its law and area show as not yet classified.
 
 ## Run it locally
 

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { parseCsv, parseCsvObjects, toCsv } from "../lib/csv.js";
 import { buildModel, filterFigures, sortFigures, summarize, entityMatrix, fyRanges, fmtUsd, fmtSum, NONE, searchTerms, scopeLabel, scopeKey, scopeSymbol, basisLabel, grossNetLabel, feeLabel, feeKey } from "../lib/model.js";
 import { FEE_LINKS } from "../lib/fee-links.js";
+import { classifyRow, categoryLabel, categoryParam, categoryMatches, categoryTree, lawLabel, NOT_CLASSIFIED } from "../lib/taxonomy.js";
 import { readArithmetic } from "../lib/arith.js";
 import { outlineToPdfRect, outlineAgrees, isOutlineRed } from "../lib/evidence.js";
 import { readPageLines, figureColumn, namesFromPage } from "../lib/pagelines.js";
@@ -56,7 +57,13 @@ import { readPageLines, figureColumn, namesFromPage } from "../lib/pagelines.js"
   for (const bad of ["[]", "[[1, 2, 3]]", "[[1, 2, 3, 4], null]", "[1, 2, 3]", "not json"]) assert.equal(outline(bad), null, bad);
 
   assert.equal(filterFigures(m.figures, { county: NONE }).length, 1);
-  assert.equal(filterFigures(m.figures, { cat: NONE }).length, 1);
+  // A blank fee_category is placed from the fee name, marked as inferred.
+  assert.equal(filterFigures(m.figures, { cat: NONE }).length, 0);
+  assert.equal(filterFigures(m.figures, { cat: "parks" }).length, 3);
+  assert.equal(m.figureById.get("g3").catInferred, true);
+  assert.equal(m.figureById.get("g1").catInferred, false);
+  assert.equal(filterFigures(m.figures, { county: `Alpha|${NONE}` }).length, 3, "values joined with | match any");
+  assert.equal(filterFigures(m.figures, { type: "city|county" }).length, 2);
   assert.equal(filterFigures(m.figures, { county: "Alpha" }).length, 2);
   assert.equal(filterFigures(m.figures, { arith: "yes" }).length, 1);
   assert.equal(filterFigures(m.figures, { fyFrom: "2023-24" }).length, 2);
@@ -281,3 +288,30 @@ if (existsSync(releaseCsv)) {
 }
 
 console.log("model tests passed");
+
+// Taxonomy: a tagged row wins; release category codes map to namespaces; law
+// and area are never inferred.
+{
+  assert.equal(classifyRow({ fee_category: "wastewater" }).cat, "water/wastewater");
+  assert.equal(classifyRow({ fee_category: "Storm Drain" }).cat, "water/stormwater");
+  assert.equal(classifyRow({ fee_category: "transportation" }).cat, "transport/");
+  assert.deepEqual(classifyRow({ fee_category: "unknown", fee_program: "Library Facilities Development Fund" }), { cat: "civic/libraries", catInferred: true, law: "", area: "", areaName: "" });
+  assert.equal(classifyRow({ fee_category: "", fee_program: "Downtown Impact Fee Fund" }).cat, "");
+  const tagged = classifyRow({ fee_category: "parks", fee_namespace: "parks", fee_subcategory: "land", fee_law: "quimby", geographic_scope: "area", area_name: "North Natomas" });
+  assert.deepEqual(tagged, { cat: "parks/land", catInferred: false, law: "quimby", area: "area", areaName: "North Natomas" });
+  assert.equal(classifyRow({ fee_category: "water", fee_namespace: "nonsense" }).cat, "water/supply", "an unknown namespace falls back to the category code");
+  assert.equal(categoryLabel("water/wastewater"), "Water › Wastewater and sewer");
+  assert.equal(categoryLabel("transport/"), "Transportation");
+  assert.equal(categoryLabel(""), NOT_CLASSIFIED);
+  assert.equal(lawLabel(""), NOT_CLASSIFIED);
+  assert.equal(categoryParam("parks_recreation_open_space"), "parks", "old cat= links keep working");
+  assert.equal(categoryParam("water/stormwater"), "water/stormwater");
+  assert.ok(categoryMatches(new Set(["water"]), "water/wastewater"));
+  assert.ok(categoryMatches(new Set(["water/wastewater"]), "water/wastewater"));
+  assert.ok(!categoryMatches(new Set(["water/stormwater"]), "water/wastewater"));
+  assert.ok(categoryMatches(new Set(["__none"]), ""));
+  const tree = categoryTree(new Map([["water/wastewater", 2], ["water/", 1], ["parks/", 4], ["", 3]]));
+  assert.deepEqual(tree.map((n) => [n.value, n.count]), [["water", 3], ["parks", 4], ["__none", 3]]);
+  assert.deepEqual(tree[0].children.map((c) => c.value), ["water/wastewater", "water/"]);
+  assert.deepEqual(tree[1].children, [], "a namespace with no subcategories has no children");
+}

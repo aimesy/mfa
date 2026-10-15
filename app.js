@@ -15,8 +15,11 @@ import {
   buildModel, filterFigures, sortFigures, summarize, entityMatrix, coverageByYear,
   fmtUsd, fmtSum, fmtInt, fmtBytes, fmtFy, fyRanges, humanize, scopeLabel, scopeKey, scopeSymbol, entityTypeLabel,
   basisLabel, grossNetLabel, roleLabel, statusLabel, publicationTypeLabel,
-  splitLimitations, EMPTY_FILTERS, NONE, matchesChoice, SORT_COLUMNS, feeKey, fyStartYear, searchTerms,
+  splitLimitations, EMPTY_FILTERS, NONE, matchesChoice, matchesCategory, splitChoice, SEP, SORT_COLUMNS, feeKey, fyStartYear, searchTerms,
 } from "./lib/model.js";
+import {
+  NAMESPACES, categoryLabel, categoryParam, categoryTree, lawLabel, areaLabel, namespaceLabel, NOT_CLASSIFIED,
+} from "./lib/taxonomy.js";
 import { readArithmetic } from "./lib/arith.js";
 import { PdfViewer } from "./lib/viewer.js";
 import { checkOutline, readPageText, setDataFetch } from "./lib/evidence.js";
@@ -339,8 +342,10 @@ function readState() {
     q: p.get("q") || "",
     type: p.get("type") || "",
     county: p.get("county") || "",
-    cat: p.get("cat") || "",
-    scope: scopeKey(p.get("scope") || ""),
+    cat: splitChoice(p.get("cat")).map(categoryParam).join(SEP),
+    law: p.get("law") || "",
+    area: p.get("area") || "",
+    scope: splitChoice(p.get("scope")).map(scopeKey).join(SEP),
     fyFrom: p.get("from") || "",
     fyTo: p.get("to") || "",
     arith: ["yes", "no"].includes(p.get("arith")) ? p.get("arith") : "",
@@ -361,7 +366,7 @@ function readState() {
   state.ssort = parseSort(p.get("ssort"), DEFAULT_SOURCE_SORT, SOURCE_SORTS);
   state.fee = state.view === "fees" ? p.get("fee") || "" : "";
   state.fq = p.get("fq") || "";
-  state.fcat = p.get("fcat") || "";
+  state.fcat = categoryParam(p.get("fcat") || "");
   state.ftype = p.get("ftype") || "";
   state.fcounty = p.get("fcounty") || "";
   state.fentity = p.get("fentity") || "";
@@ -380,7 +385,7 @@ function stateParams({ pinRef = false } = {}) {
   const f = state.filters;
   const put = (k, v) => { if (v) p.set(k, v); };
   if (state.view === "figures") {
-    put("q", f.q); put("type", f.type); put("county", f.county); put("cat", f.cat); put("scope", f.scope);
+    put("q", f.q); put("type", f.type); put("county", f.county); put("cat", f.cat); put("law", f.law); put("area", f.area); put("scope", f.scope);
     put("from", f.fyFrom); put("to", f.fyTo); put("arith", f.arith); put("entity", f.entity); put("source", f.source);
     put("sort", sortParam(state.sort, DEFAULT_SORT));
     if (state.page > 1) p.set("page", state.page);
@@ -586,10 +591,6 @@ function choices(values, label) {
   return [["", "All"], ...values.map((v) => [v || NONE, v ? label(v) : "(not recorded)"])];
 }
 
-function choiceLabel(v, label) {
-  return v === NONE ? "not recorded" : label(v);
-}
-
 function select(id, options, value, onChange) {
   const s = el("select", { id, onchange: (e) => onChange(e.target.value) });
   for (const [v, text] of options) s.append(el("option", { value: v, text }));
@@ -660,10 +661,12 @@ function renderToolbar() {
       },
     });
     more.append(
-      chip("Type", select("type", choices(model.types, entityTypeLabel), f.type, setF("type"))),
-      chip("County", select("county", choices(model.counties, (c) => c), f.county, setF("county"))),
-      chip("Category", select("cat", choices(model.categories, humanize), f.cat, setF("cat"))),
-      chip("Land use", select("scope", choices(model.scopes, scopeLabel), f.scope, setF("scope"))),
+      filterBoxButton("cat"),
+      filterBoxButton("law"),
+      filterBoxButton("area"),
+      filterBoxButton("type"),
+      filterBoxButton("county"),
+      filterBoxButton("scope"),
       chip("FY from", select("from", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyFrom, setF("fyFrom"))),
       chip("to", select("to", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyTo, setF("fyTo"))),
       chip("Arithmetic", select("arith", [["", "Any"], ["yes", "Yes"], ["no", "No"]], f.arith, setF("arith"))),
@@ -686,7 +689,7 @@ function renderToolbar() {
   } else if (key === "fees") {
     bar.append(
       chip("Search", searchInput("fq", state.fq, "jurisdiction, fee, fund number", (v) => { state.fq = v; update(); })),
-      chip("Category", select("fcat", choices(model.categories, humanize), state.fcat, (v) => { state.fcat = v; update(); })),
+      chip("Category", select("fcat", categoryChoices(), state.fcat, (v) => { state.fcat = v; update(); })),
       chip("Type", select("ftype", choices(model.types, entityTypeLabel), state.ftype, (v) => { state.ftype = v; update(); })),
       chip("County", select("fcounty", choices(model.counties, (c) => c), state.fcounty, (v) => { state.fcounty = v; update(); })),
       el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = ""; state.fentity = ""; toolbarView = ""; update(); } }),
@@ -702,7 +705,8 @@ function renderToolbar() {
 function syncToolbar() {
   const set = (id, v) => { const n = $(id); if (n && n !== document.activeElement && n.value !== v) n.value = v; };
   const f = state.filters;
-  set("q", f.q); set("type", f.type); set("county", f.county); set("cat", f.cat); set("scope", f.scope);
+  set("q", f.q);
+  for (const b of document.querySelectorAll(".fbox-btn[data-key]")) setFilterBoxText(b);
   set("from", f.fyFrom); set("to", f.fyTo); set("arith", f.arith);
   set("eq", state.eq); set("etype", state.etype); set("ecounty", state.ecounty);
   set("sq", state.sq);
@@ -714,6 +718,207 @@ function clearFilters() {
   state.page = 1;
   toolbarView = "";
   update();
+}
+
+// ------------------------------------------------------------ FILTER BOXES
+
+// One box per field, patterned on the column filters of aimesy/sfsc and
+// tentatives: tick any number of values (any of them matches; different
+// boxes must all match), with each value's count among the figures the other
+// filters leave. Category is a tree: a namespace ticks everything under it.
+const FILTER_BOXES = {
+  cat: { label: "Category", value: (f) => f.cat, text: categoryLabel, tree: true },
+  law: { label: "Law", value: (f) => f.law, text: lawLabel },
+  area: { label: "Area", value: (f) => f.area, text: areaLabel },
+  type: { label: "Type", value: (f) => f.primary.entity_type, text: entityTypeLabel },
+  county: { label: "County", value: (f) => f.primary.county, text: (c) => c },
+  scope: { label: "Land use", value: (f) => scopeKey(f.primary.land_use_scope), text: scopeLabel },
+  entity: { label: "Jurisdiction", value: (f) => f.entity, text: (v) => v, many: true },
+};
+
+function boxValueText(key, v) {
+  if (v === NONE) return key === "cat" || key === "law" || key === "area" ? NOT_CLASSIFIED : "(not recorded)";
+  if (key === "cat") return categoryLabel(v.includes("/") ? v : `${v}/`);
+  return FILTER_BOXES[key].text(v);
+}
+
+function boxSummary(key, raw) {
+  const vals = splitChoice(raw);
+  return vals.length <= 2 ? vals.map((v) => boxValueText(key, v)).join(" or ") : `${vals.length} values`;
+}
+
+function filterBoxButton(key) {
+  const b = el("button", {
+    type: "button", class: "btn fbox-btn", dataset: { key }, "aria-haspopup": "dialog",
+    onclick: (e) => { e.stopPropagation(); openFilterBox(key, e.currentTarget); },
+  });
+  setFilterBoxText(b);
+  return el("span", { class: "chip" }, b);
+}
+
+function setFilterBoxText(b) {
+  const key = b.dataset.key;
+  const raw = state.filters[key];
+  b.textContent = `${FILTER_BOXES[key].label}: ${raw ? boxSummary(key, raw) : "All"} ▾`;
+  b.classList.toggle("active", Boolean(raw));
+}
+
+function categoryChoices() {
+  const out = [["", "All"]];
+  for (const [ns, label, subs] of NAMESPACES) {
+    if (!model.fees.some((f) => (f.cat || "").split("/")[0] === ns)) continue;
+    out.push([ns, label]);
+    for (const [sub, sl] of subs) if (model.fees.some((f) => f.cat === `${ns}/${sub}`)) out.push([`${ns}/${sub}`, `${label} › ${sl}`]);
+  }
+  if (model.fees.some((f) => !f.cat)) out.push([NONE, NOT_CLASSIFIED]);
+  return out;
+}
+
+function boxOptions(key) {
+  const box = FILTER_BOXES[key];
+  const figs = filterFigures(model.figures, { ...state.filters, [key]: "" });
+  const counts = new Map();
+  for (const f of figs) {
+    const v = box.value(f) || "";
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  if (box.tree) return categoryTree(counts);
+  return [...counts].map(([v, count]) => ({ value: v || NONE, label: boxValueText(key, v || NONE), count, children: [] }));
+}
+
+let openBox = null;
+
+function closeFilterBox() {
+  if (!openBox) return;
+  openBox.pop.remove();
+  document.removeEventListener("mousedown", openBox.outside, true);
+  openBox.anchor.focus?.();
+  openBox = null;
+}
+
+function openFilterBox(key, anchor) {
+  const reopen = openBox?.key === key;
+  closeFilterBox();
+  if (reopen) return;
+  const box = FILTER_BOXES[key];
+  const options = boxOptions(key);
+  const leaves = options.flatMap((o) => (o.children.length ? o.children : [o]));
+  const current = new Set(splitChoice(state.filters[key]));
+  // Nothing chosen means everything shown: start with every value ticked,
+  // except in a long list (jurisdictions), which starts empty for searching.
+  const selected = new Set();
+  for (const o of options) {
+    for (const leaf of o.children.length ? o.children : [o]) {
+      const on = current.has(leaf.value) || current.has(o.value) || (box.tree && current.has(`${o.value}/`));
+      if (current.size ? on : !box.many) selected.add(leaf.value);
+    }
+  }
+  let sortMode = box.tree ? "tree" : box.many ? "az" : "count";
+  let search = "";
+
+  const list = el("div", { class: "cf-list", role: "group", "aria-label": `${box.label} values` });
+  const sortBtn = (mode, text) => el("button", {
+    type: "button", class: mode === sortMode ? "active" : "", text,
+    onclick: (e) => { sortMode = mode; for (const b of e.currentTarget.parentNode.children) b.classList.toggle("active", b === e.currentTarget); renderList(); },
+  });
+  const searchBox = el("input", {
+    class: "cf-search", type: "search", placeholder: box.many ? "Type to search, then tick…" : "Search values…",
+    "aria-label": `Search ${box.label} values`, oninput: (e) => { search = e.target.value.toLowerCase(); renderList(); },
+  });
+  const apply = el("button", { type: "button", class: "cf-apply", text: "Apply", onclick: () => {
+    let vals;
+    if (box.tree) {
+      vals = [];
+      for (const o of options) {
+        const kids = o.children.length ? o.children : [o];
+        const on = kids.filter((c) => selected.has(c.value));
+        if (on.length === kids.length) vals.push(o.value);
+        else vals.push(...on.map((c) => c.value));
+      }
+    } else vals = leaves.filter((o) => selected.has(o.value)).map((o) => o.value);
+    const all = !box.many && vals.length === options.length;
+    state.filters[key] = all || !vals.length ? "" : vals.join(SEP);
+    state.page = 1;
+    closeFilterBox();
+    update();
+  } });
+  const pop = el("div", { class: "col-filter-pop open", role: "dialog", "aria-label": `Filter by ${box.label}` },
+    el("div", { class: "cf-title", text: `Filter · ${box.label}` }),
+    box.tree ? null : el("div", { class: "cf-sort" }, sortBtn("az", "A to Z"), sortBtn("za", "Z to A"), sortBtn("count", "By count")),
+    searchBox,
+    list,
+    el("div", { class: "cf-actions" },
+      apply,
+      el("button", { type: "button", class: "cf-clear", text: "Clear", onclick: () => { state.filters[key] = ""; state.page = 1; closeFilterBox(); update(); } }),
+      el("button", { type: "button", class: "cf-cancel", text: "Cancel", onclick: closeFilterBox })),
+  );
+
+  const row = (o, cls, onChange, checked, indeterminate = false) => {
+    const cb = el("input", { type: "checkbox", onchange: onChange });
+    cb.checked = checked;
+    cb.indeterminate = indeterminate;
+    return el("label", { class: `cf-row ${cls}` }, cb,
+      el("span", { class: "cf-label", title: o.label, text: o.label }),
+      el("span", { class: "cf-count", text: fmtInt(o.count) }));
+  };
+
+  function visible(o) {
+    return !search || o.label.toLowerCase().includes(search) || o.children.some((c) => c.label.toLowerCase().includes(search));
+  }
+
+  function renderList() {
+    let view = options.filter(visible);
+    if (sortMode === "az") view.sort((a, b) => a.label.localeCompare(b.label));
+    else if (sortMode === "za") view.sort((a, b) => b.label.localeCompare(a.label));
+    else if (sortMode === "count") view.sort((a, b) => b.count - a.count);
+    if (box.many && !search) view = view.filter((o) => selected.has(o.value));
+    const nodes = [];
+    if (box.many && view.length > 200) {
+      nodes.push(el("div", { class: "cf-empty", text: `Showing 200 of ${fmtInt(view.length)}; type more to narrow.` }));
+      view = view.slice(0, 200);
+    }
+    const shown = view.flatMap((o) => (o.children.length ? o.children : [o]));
+    if (!view.length) {
+      nodes.push(el("div", { class: "cf-empty", text: box.many && !search ? "Type a name, then tick." : "No matching values." }));
+    } else {
+      const allOn = shown.every((o) => selected.has(o.value));
+      nodes.push(row({ label: search || box.many ? "(Select all shown)" : "(Select all)", count: shown.reduce((n, o) => n + o.count, 0) }, "cf-all", (e) => {
+        for (const o of shown) e.target.checked ? selected.add(o.value) : selected.delete(o.value);
+        renderList();
+      }, allOn));
+      for (const o of view) {
+        if (o.children.length) {
+          const on = o.children.filter((c) => selected.has(c.value)).length;
+          nodes.push(row(o, "cf-ns", (e) => {
+            for (const c of o.children) e.target.checked ? selected.add(c.value) : selected.delete(c.value);
+            renderList();
+          }, on === o.children.length, on > 0 && on < o.children.length));
+          for (const c of o.children) {
+            nodes.push(row(c, "cf-sub", (e) => { e.target.checked ? selected.add(c.value) : selected.delete(c.value); renderList(); }, selected.has(c.value)));
+          }
+        } else {
+          nodes.push(row(o, box.tree ? "cf-ns" : "", (e) => { e.target.checked ? selected.add(o.value) : selected.delete(o.value); renderList(); }, selected.has(o.value)));
+        }
+      }
+    }
+    list.replaceChildren(...nodes);
+    apply.disabled = !box.many && selected.size === 0;
+  }
+  renderList();
+
+  document.body.append(pop);
+  const r = anchor.getBoundingClientRect();
+  const w = pop.offsetWidth || 300;
+  pop.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left + window.scrollX - 8))}px`;
+  pop.style.top = `${r.bottom + window.scrollY + 4}px`;
+  const outside = (e) => { if (!pop.contains(e.target) && e.target !== anchor) closeFilterBox(); };
+  document.addEventListener("mousedown", outside, true);
+  pop.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.stopPropagation(); closeFilterBox(); }
+    if (e.key === "Enter" && e.target.tagName === "INPUT" && !apply.disabled) apply.click();
+  });
+  openBox = { key, pop, anchor, outside };
+  searchBox.focus();
 }
 
 // ============================================================ RENDER
@@ -772,16 +977,15 @@ function activeFilterTags() {
   const f = state.filters;
   const tags = [];
   const drop = (k) => () => { state.filters[k] = ""; state.page = 1; update(); };
-  if (f.entity) tags.push(filterTag(`Jurisdiction: ${f.entity}`, drop("entity")));
+  if (f.entity) tags.push(filterTag(`Jurisdiction: ${boxSummary("entity", f.entity)}`, drop("entity")));
   if (f.source) {
     const s = model.sourceById.get(f.source);
     tags.push(filterTag(`Source: ${s ? s.publication_title : f.source}`, drop("source")));
   }
   if (f.q) tags.push(filterTag(`“${f.q}”`, drop("q")));
-  if (f.type) tags.push(filterTag(`Type: ${choiceLabel(f.type, entityTypeLabel)}`, drop("type")));
-  if (f.county) tags.push(filterTag(`County: ${choiceLabel(f.county, (c) => c)}`, drop("county")));
-  if (f.cat) tags.push(filterTag(`Category: ${choiceLabel(f.cat, humanize)}`, drop("cat")));
-  if (f.scope) tags.push(filterTag(`Land use: ${choiceLabel(f.scope, scopeLabel)}`, drop("scope")));
+  for (const k of ["cat", "law", "area", "type", "county", "scope"]) {
+    if (f[k]) tags.push(filterTag(`${FILTER_BOXES[k].label}: ${boxSummary(k, f[k])}`, drop(k)));
+  }
   if (f.fyFrom || f.fyTo) tags.push(filterTag(`FY ${fmtFy(f.fyFrom) || "…"} to ${fmtFy(f.fyTo) || "…"}`, () => { state.filters.fyFrom = ""; state.filters.fyTo = ""; update(); }));
   if (f.arith) tags.push(filterTag(`Arithmetic: ${f.arith === "yes" ? "yes" : "no"}`, drop("arith")));
   return tags;
@@ -792,13 +996,21 @@ function sumNote(summary) {
     "sum ", el("strong", { text: fmtSum(summary.sum) }));
 }
 
-function sortHeader(label, col, sort, onSort, cls = "") {
+// filterKey adds the column's filter box (the ▾ beside its name).
+function sortHeader(label, col, sort, onSort, cls = "", filterKey = "") {
   const active = sort.col === col;
   const th = el("th", {
     class: `sortable ${cls} ${active ? `sort-${sort.dir}` : ""}`,
     scope: "col",
     "aria-sort": active ? (sort.dir === "asc" ? "ascending" : "descending") : "none",
-  }, el("button", { type: "button", class: "th-btn", onclick: () => onSort(col) }, el("span", { class: "col-label", text: label })));
+  }, el("span", { class: "col-head" },
+    el("button", { type: "button", class: "th-btn", onclick: () => onSort(col) }, el("span", { class: "col-label", text: label })),
+    filterKey ? el("button", {
+      type: "button", class: `col-filter-btn${state.filters[filterKey] ? " active" : ""}`, text: "▾",
+      title: `Filter by ${FILTER_BOXES[filterKey].label}`, "aria-label": `Filter by ${FILTER_BOXES[filterKey].label}`,
+      "aria-haspopup": "dialog",
+      onclick: (e) => { e.stopPropagation(); openFilterBox(filterKey, e.currentTarget); },
+    }) : null));
   return th;
 }
 
@@ -830,10 +1042,12 @@ function renderFigures(content) {
   const s = state.sort;
   const table = el("table", { class: "grid figures-grid" },
     el("thead", {}, el("tr", {},
-      sortHeader("Jurisdiction", "entity", s, onSort, "col-entity"),
+      sortHeader("Jurisdiction", "entity", s, onSort, "col-entity", "entity"),
       sortHeader("FY", "fy", s, onSort, "col-fy"),
       sortHeader("Fee program", "program", s, onSort, "col-program"),
-      sortHeader("Category", "category", s, onSort, "col-cat"),
+      sortHeader("Category", "category", s, onSort, "col-cat", "cat"),
+      sortHeader("Law", "law", s, onSort, "col-law", "law"),
+      sortHeader("Area", "area", s, onSort, "col-area", "area"),
       sortHeader("Printed label", "label", s, onSort, "col-label"),
       sortHeader("Amount", "value", s, onSort, "col-amount num"),
       el("th", { class: "col-notes", scope: "col" }, el("span", { class: "col-label", text: "Notes" })),
@@ -844,7 +1058,7 @@ function renderFigures(content) {
   for (const fig of pageRows) body.append(figureRow(fig, list));
   table.append(body);
   if (!pageRows.length) {
-    body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 8, text: "No published figure matches these filters." })));
+    body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 10, text: "No published figure matches these filters." })));
   }
 
   const pager = el("div", { class: "pager" },
@@ -1010,7 +1224,17 @@ function figureRow(fig, list) {
     el("td", { class: "col-entity", title: `${fig.entity}\n${entityTypeLabel(p.entity_type)}${p.county ? ` · ${p.county} County` : ""}` }, entityFilterLink(fig.entity)),
     el("td", { class: "col-fy", text: fmtFy(fig.fy) }),
     el("td", { class: "col-program", title: fig.program, text: fig.program }),
-    el("td", { class: "col-cat", text: humanize(fig.category) }),
+    el("td", {
+      class: `col-cat${fig.catInferred ? " inferred" : ""}${fig.cat ? "" : " unclassified"}`,
+      title: fig.catInferred ? `${categoryLabel(fig.cat)}\nPlaced from the fee name; the report's category is not recorded` : categoryLabel(fig.cat),
+      text: categoryLabel(fig.cat),
+    }),
+    el("td", { class: `col-law${fig.law ? "" : " unclassified"}`, text: fig.law ? lawLabel(fig.law) : "—", title: fig.law ? lawLabel(fig.law) : NOT_CLASSIFIED }),
+    el("td", {
+      class: `col-area${fig.area ? "" : " unclassified"}`,
+      title: fig.area ? [areaLabel(fig.area), fig.areaName].filter(Boolean).join(": ") : NOT_CLASSIFIED,
+      text: fig.area ? (fig.areaName || areaLabel(fig.area)) : "—",
+    }),
     el("td", { class: "col-label", title: fig.label, text: fig.label }),
     el("td", { class: "col-amount num", title: `Printed as “${p.source_value_text}”` }, fmtUsd(fig.value)),
     el("td", { class: "col-notes" }, figureBadges(fig)),
@@ -1137,7 +1361,7 @@ function renderEntityDossier(content) {
     years.map((y) => el("th", { class: "num", scope: "col", text: fmtFy(y) }))));
   const tbody = el("tbody");
   for (const g of matrix.groups) {
-    tbody.append(el("tr", { class: "mx-group" }, el("th", { colspan: years.length + 1, scope: "rowgroup", text: humanize(g.category) || "Category not recorded" })));
+    tbody.append(el("tr", { class: "mx-group" }, el("th", { colspan: years.length + 1, scope: "rowgroup", text: g.category ? namespaceLabel(g.category) : NOT_CLASSIFIED })));
     for (const row of g.fees) {
       tbody.append(el("tr", {},
         el("th", { class: "mx-program", scope: "row", title: row.fee.names.join(", then ") }, feeLink(row.fee)),
@@ -1200,7 +1424,7 @@ function feeRows() {
   let list = model.fees.filter((f) => {
     const p = f.figures[f.figures.length - 1].primary;
     if (state.fentity && f.entity !== state.fentity) return false;
-    if (state.fcat && !matchesChoice(state.fcat, f.category)) return false;
+    if (state.fcat && !matchesCategory(state.fcat, f.cat)) return false;
     if (state.ftype && !matchesChoice(state.ftype, p.entity_type)) return false;
     if (state.fcounty && !matchesChoice(state.fcounty, p.county)) return false;
     return terms.every((t) => f.search.includes(t));
@@ -1208,7 +1432,7 @@ function feeRows() {
   const { col, dir } = state.fsort;
   const d = dir === "asc" ? 1 : -1;
   const key = {
-    entity: (f) => f.entity, fee: (f) => f.label, category: (f) => humanize(f.category) || "~",
+    entity: (f) => f.entity, fee: (f) => f.label, category: (f) => (f.cat ? categoryLabel(f.cat) : "~"),
     years: (f) => f.years.size, last: (f) => f.yearList[f.yearList.length - 1], figures: (f) => f.figures.length, sum: (f) => f.sum,
   }[col];
   list = [...list].sort((a, b) => {
@@ -1231,7 +1455,7 @@ function renderFees(content) {
     body.append(el("tr", { onclick: (ev) => { if (!entityCellClick(ev) && !ev.target.closest("a,button")) openFee(f); } },
       el("td", { class: "col-entity" }, entityFilterLink(f.entity)),
       el("td", { class: "col-fee", title: f.names.length > 1 ? `Printed as ${f.names.join(", then ")}` : null }, feeLink(f)),
-      el("td", { text: humanize(f.category) }),
+      el("td", { text: categoryLabel(f.cat) }),
       el("td", { class: "col-years", title: fyRanges(f.yearList), text: fyRanges(f.yearList) }),
       el("td", { class: "num", text: fmtInt(f.years.size) }),
       el("td", { class: "num", text: fmtInt(f.figures.length) }),
@@ -1292,7 +1516,7 @@ function renderFeePage(content) {
     el("h2", { text: fee.label }),
     el("div", { class: "dossier-meta" },
       el("span", {}, el("a", { href: entityHref(fee.entity), onclick: (ev) => { ev.preventDefault(); openEntity(fee.entity); }, text: fee.entity })),
-      [humanize(fee.category), `FY ${fyRanges(fee.yearList)}`, `${fmtInt(fee.figures.length)} figures`, `${fmtInt(fee.sources.size)} reports`, `sum ${fmtSum(fee.sum)}`]
+      [categoryLabel(fee.cat), `FY ${fyRanges(fee.yearList)}`, `${fmtInt(fee.figures.length)} figures`, `${fmtInt(fee.sources.size)} reports`, `sum ${fmtSum(fee.sum)}`]
         .filter(Boolean).map((t) => el("span", { text: t }))),
     el("div", { class: "dossier-actions" }, copyButton("Copy link", () => new URL(urlFor(), location.href).href)),
   );
@@ -1495,7 +1719,9 @@ function renderStatsView(content) {
     coverageChart(coverageByYear(figs)),
     el("div", { class: "stats-cols" },
       el("div", { class: "stats-col" },
-        statsBlock("Fee category", breakdownTable("Category", figs, (f) => f.category, (v) => humanize(v), (v) => ({ cat: v || NONE })))),
+        statsBlock("Fee category", breakdownTable("Category", figs, (f) => (f.cat || "").split("/")[0], namespaceLabel, (v) => ({ cat: v || NONE }))),
+        statsBlock("Law", breakdownTable("Law", figs, (f) => f.law, lawLabel, (v) => ({ law: v || NONE }))),
+        statsBlock("Area", breakdownTable("Area", figs, (f) => f.area, areaLabel, (v) => ({ area: v || NONE })))),
       el("div", { class: "stats-col" },
         statsBlock("Jurisdiction type", breakdownTable("Type", figs, (f) => f.primary.entity_type, entityTypeLabel, (v) => ({ type: v || NONE }))),
         statsBlock("Land use", breakdownTable("Land use", figs, (f) => scopeKey(f.primary.land_use_scope), scopeLabel, (v) => ({ scope: v || NONE }))),
@@ -2045,7 +2271,9 @@ function figureDetails(fig) {
       ["Basis", basisLabel(p.accounting_basis_source_read)],
       ["Gross/net", grossNetLabel(p.gross_or_net_source_read)],
       ["Fiscal year", el("span", { title: humanize(p.fiscal_year_basis), text: `${fmtFy(fig.fy)} · ${p.fiscal_year_start} to ${p.fiscal_year_end}` })],
-      ["Category", humanize(fig.category)],
+      ["Category", fig.catInferred ? `${categoryLabel(fig.cat)} (placed from the fee name)` : categoryLabel(fig.cat)],
+      ["Law", fig.law ? lawLabel(fig.law) : NOT_CLASSIFIED],
+      ["Area", fig.area ? [areaLabel(fig.area), fig.areaName].filter(Boolean).join(": ") : NOT_CLASSIFIED],
     ])),
     section("Arithmetic", arithmeticView(fig)),
     section("Notes", dl([
