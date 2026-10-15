@@ -14,13 +14,31 @@
 // no_fees set: the tab fills their share of each bar in yellow, since they
 // have no report to harvest. Merged duplicates and entries recorded on another
 // roster are left out of every count; none holds a report.
+//
+// Two collection lanes add to the inventory (2026-10-15):
+//   --screening <MUNICIPAL-SCREENING.jsonl>, the municipal screening lane's
+//     verdicts: no_fees marks a city or county as charging no development fees
+//     (no_fees 1), collects_regional_only as collecting only fees that other
+//     agencies impose (no_fees 2; it has no report of its own either), and
+//     charges_fees clears a no-fee mark from the inventory.
+//   --harvest <HARVEST-BY-AGENCY-YEAR.csv>, the crawl sorting lane's checked
+//     documents: an annual 66006, school developer fee or 66013(d) report
+//     counts its fiscal year as harvested.
 
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
+import { parseCsvObjects } from "../lib/csv.js";
 
-const [dir, out = new URL("../coverage/coverage.json", import.meta.url).pathname] = process.argv.slice(2);
-if (!dir) {
-  console.error("usage: node scripts/coverage.mjs <inventory-dir> [out.json]");
+const opt = {};
+const positional = [];
+for (let i = 2; i < process.argv.length; i += 1) {
+  const arg = process.argv[i];
+  if (arg === "--screening" || arg === "--harvest") opt[arg.slice(2)] = process.argv[++i];
+  else positional.push(arg);
+}
+const [dir, out = new URL("../coverage/coverage.json", import.meta.url).pathname] = positional;
+if (!dir || Object.values(opt).some((v) => !v)) {
+  console.error("usage: node scripts/coverage.mjs <inventory-dir> [out.json] [--screening MUNICIPAL-SCREENING.jsonl] [--harvest HARVEST-BY-AGENCY-YEAR.csv]");
   process.exit(2);
 }
 
@@ -51,6 +69,31 @@ years.forEach((fy, i) => {
 const bit = new Map(years.map((fy, i) => [fy, 1 << i]));
 const mask = (list) => list.reduce((m, fy) => m | (bit.get(fy) || 0), 0);
 
+const unknown = { screening: 0, harvest: 0 };
+const VERDICT_NO_FEES = { no_fees: 1, collects_regional_only: 2, charges_fees: 0 };
+const verdicts = new Map();
+if (opt.screening) {
+  for (const line of readFileSync(opt.screening, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const r = JSON.parse(line);
+    if (!Object.hasOwn(inventory, r.agency_id ?? "")) unknown.screening += 1;
+    else if (r.verdict in VERDICT_NO_FEES) verdicts.set(r.agency_id, VERDICT_NO_FEES[r.verdict]);
+  }
+}
+const HARVEST_TYPES = new Set(["annual_66006", "school_developer_fee", "connection_capacity_66013d"]);
+const crawlHarvested = new Map();
+if (opt.harvest) {
+  for (const r of parseCsvObjects(readFileSync(opt.harvest, "utf8")).rows) {
+    if (!HARVEST_TYPES.has(r.doc_type)) continue;
+    if (!Object.hasOwn(inventory, r.agency_id ?? "")) {
+      unknown.harvest += 1;
+      continue;
+    }
+    const fy = r.fiscal_year.trim().replace(/^FY\s*/i, "");
+    crawlHarvested.set(r.agency_id, (crawlHarvested.get(r.agency_id) || 0) | (bit.get(fy) || 0));
+  }
+}
+
 const classIndex = new Map(CLASSES.map(([k], i) => [k, i]));
 const types = [];
 const counties = [];
@@ -64,7 +107,7 @@ const leftOut = {};
 const agencies = [];
 for (const a of Object.values(inventory)) {
   if (!classIndex.has(a.class)) throw new Error(`unknown class ${a.class} for ${a.agency_id}`);
-  const harvested = mask([...a.annual_years_held_provisional, ...a.published_years]);
+  const harvested = mask([...a.annual_years_held_provisional, ...a.published_years]) | (crawlHarvested.get(a.agency_id) || 0);
   const processed = mask(a.published_years);
   const reason = LEFT_OUT[a.screening_status];
   if (reason && !harvested) {
@@ -78,7 +121,7 @@ for (const a of Object.values(inventory)) {
     for (const r of recs) if (r.file === RELEASE_FILE && r.row?.receiving_entity) names.add(r.row.receiving_entity.trim());
   }
   const row = [a.agency_name.trim(), classIndex.get(a.class), indexOf(types, a.agency_type || ""), indexOf(counties, a.county || ""), harvested, processed,
-    a.screening_status === NO_FEES ? 1 : 0];
+    verdicts.get(a.agency_id) ?? (a.screening_status === NO_FEES ? 1 : 0)];
   if (names.size) row.push([...names].sort());
   agencies.push(row);
 }
@@ -109,3 +152,5 @@ const tmp = `${out}.tmp`;
 writeFileSync(tmp, `${JSON.stringify(data)}\n`);
 renameSync(tmp, out);
 console.log(`${out}: ${agencies.length} agencies (${agencies.filter((r) => r[6]).length} charge no development fees), ${years[0]} to ${years[years.length - 1]}, inventory ${summary.written_utc}, release ${String(summary.published_commit).slice(0, 7)}`);
+if (opt.screening) console.log(`screening: ${verdicts.size} verdicts used, ${unknown.screening} rows with an agency_id not in the inventory`);
+if (opt.harvest) console.log(`harvest: ${crawlHarvested.size} agencies with crawl reports, ${unknown.harvest} rows with an agency_id not in the inventory`);
