@@ -34,7 +34,7 @@ const DEFAULT_BRANCH = "main";
 // files, /releases/download/<tag>/<name> its release assets, and /ref answers
 // the commit at main.
 const DATA_ROOT = "https://mfa-data.amyc.us/";
-const VIEWS = ["entities", "fees", "sources", "figures", "stats"];
+const VIEWS = ["entities", "fees", "sources", "figures", "coverage", "stats"];
 const DEFAULT_VIEW = "entities";
 const PAGE_SIZES = [50, 100, 250, 500];
 const DEFAULT_SORT = { col: "fy", dir: "desc" };
@@ -301,6 +301,9 @@ const state = {
   fee: "",
   fq: "", fcat: "", ftype: "", fcounty: "", fentity: "",
   fsort: { ...DEFAULT_FEE_SORT },
+  cyr: "", ccls: "", ctype: "", ccounty: "", cq: "", cstat: "",
+  csort: { col: "name", dir: "asc" },
+  cpage: 1,
   figure: "",
   doc: "",
   tab: "outlined",
@@ -371,6 +374,14 @@ function readState() {
   state.fcounty = p.get("fcounty") || "";
   state.fentity = p.get("fentity") || "";
   state.fsort = parseSort(p.get("fsort"), DEFAULT_FEE_SORT, FEE_SORTS);
+  state.cyr = p.get("cyr") === "all" ? "all" : "";
+  state.ccls = COVERAGE_CLASSES.includes(p.get("ccls")) ? p.get("ccls") : "";
+  state.ctype = p.get("ctype") || "";
+  state.ccounty = p.get("ccounty") || "";
+  state.cq = p.get("cq") || "";
+  state.cstat = COVERAGE_STATUSES.some(([k]) => k && k === p.get("cstat")) ? p.get("cstat") : "";
+  state.csort = parseSort(p.get("csort"), DEFAULT_COVERAGE_SORT, COVERAGE_SORTS);
+  state.cpage = Math.max(1, Number.parseInt(p.get("cpage"), 10) || 1);
   state.figure = p.get("f") || "";
   state.doc = state.figure ? "" : p.get("doc") || "";
   state.tab = p.get("tab") === "original" ? "original" : "outlined";
@@ -407,6 +418,10 @@ function stateParams({ pinRef = false } = {}) {
   } else if (state.view === "sources") {
     put("sq", state.sq); put("sentity", state.sentity);
     put("ssort", sortParam(state.ssort, DEFAULT_SOURCE_SORT));
+  } else if (state.view === "coverage") {
+    put("cyr", state.cyr); put("ccls", state.ccls); put("ctype", state.ctype); put("ccounty", state.ccounty); put("cq", state.cq); put("cstat", state.cstat);
+    put("csort", sortParam(state.csort, DEFAULT_COVERAGE_SORT));
+    if (state.cpage > 1) p.set("cpage", state.cpage);
   }
   if (state.figure) {
     p.set("f", state.figure);
@@ -577,6 +592,7 @@ function updateTitle() {
   else if (state.view === "fees" && currentFee()) t = `${currentFee().label} · ${state.entity} · ${base}`;
   else if (state.view === "fees") t = `Fees · ${base}`;
   else if (state.view === "sources") t = `Sources · ${base}`;
+  else if (state.view === "coverage") t = `Coverage · ${base}`;
   else if (state.view === "stats") t = `Stats · ${base}`;
   document.title = t;
 }
@@ -699,6 +715,20 @@ function renderToolbar() {
       chip("Search", searchInput("sq", state.sq, "agency, title, source id, fiscal year", (v) => { state.sq = v; update(); })),
       el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.sq = ""; state.sentity = ""; toolbarView = ""; update(); } }),
     );
+  } else if (key === "coverage") {
+    const d = coverageData;
+    const set = (k, rebuild = false) => (v) => { state[k] = v; state.cpage = 1; if (rebuild) toolbarView = ""; update(); };
+    bar.append(
+      chip("Years", select("cyr", [["", `FY ${fmtFy(RECENT_FROM)} on`], ["all", "All years"]], state.cyr, set("cyr"))),
+      chip("Class", select("ccls", [["", "All"], ...(d?.classes || []).map((c) => [c.key, c.label])], state.ccls, (v) => { state.ctype = ""; set("ccls", true)(v); })),
+      chip("Type", select("ctype", [["", "All"], ...coverageTypes(d)], state.ctype, set("ctype"))),
+      chip("County", select("ccounty", [["", "All"], ...coverageCounties(d)], state.ccounty, set("ccounty"))),
+      chip("Search", searchInput("cq", state.cq, "jurisdiction or county", set("cq"))),
+      chip("Status", select("cstat", COVERAGE_STATUSES, state.cstat, set("cstat"))),
+      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => setCoverage({ cyr: "", ccls: "", ctype: "", ccounty: "", cq: "", cstat: "" }, false) }),
+      el("span", { class: "sep" }),
+      copyButton("Copy link", () => new URL(urlFor(), location.href).href),
+    );
   }
 }
 
@@ -711,6 +741,7 @@ function syncToolbar() {
   set("eq", state.eq); set("etype", state.etype); set("ecounty", state.ecounty);
   set("sq", state.sq);
   set("fq", state.fq); set("fcat", state.fcat); set("ftype", state.ftype); set("fcounty", state.fcounty);
+  set("cyr", state.cyr); set("ccls", state.ccls); set("ctype", state.ctype); set("ccounty", state.ccounty); set("cq", state.cq); set("cstat", state.cstat);
 }
 
 function clearFilters() {
@@ -937,7 +968,8 @@ function renderAll() {
   renderToolbar();
   const ck = JSON.stringify([state.view, state.filters, state.sort, state.page, state.pageSize, state.entity,
     state.eq, state.etype, state.ecounty, state.esort, state.sq, state.sentity, state.ssort,
-    state.fee, state.fq, state.fcat, state.ftype, state.fcounty, state.fentity, state.fsort]);
+    state.fee, state.fq, state.fcat, state.ftype, state.fcounty, state.fentity, state.fsort,
+    state.cyr, state.ccls, state.ctype, state.ccounty, state.cq, state.cstat, state.csort, state.cpage]);
   if (ck !== contentKey) {
     contentKey = ck;
     renderContent();
@@ -957,6 +989,7 @@ function renderContent() {
     if (state.fee) renderFeePage(content);
     else renderFees(content);
   } else if (state.view === "sources") renderSources(content);
+  else if (state.view === "coverage") renderCoverage(content);
   else renderStatsView(content);
 }
 
@@ -1972,6 +2005,328 @@ function showTooltip(ev, children) {
 
 function hideTooltip() {
   $("tooltip").hidden = true;
+}
+
+// ------------------------------------------------------------ COVERAGE
+// How much of the roster's annual fee reports has been harvested, and how
+// much the release has processed, by jurisdiction and fiscal year. The counts
+// are coverage/coverage.json in this repository, which scripts/coverage.mjs
+// writes from the collection project's screening inventory; they are not part
+// of the release.
+
+const COVERAGE_URL = "coverage/coverage.json";
+const RECENT_FROM = "2021-22";
+const COVERAGE_PAGE = 100;
+const COVERAGE_CLASSES = ["municipal", "school", "special"];
+const COVERAGE_STATUSES = [
+  ["", "All"],
+  ["none", "Nothing harvested"],
+  ["gaps", "A year not harvested"],
+  ["waiting", "Harvested, not yet processed"],
+  ["done", "Every year processed"],
+];
+const COVERAGE_SORTS = ["name", "type", "county", "harvested", "processed"];
+const DEFAULT_COVERAGE_SORT = { col: "name", dir: "asc" };
+let coverageData = null;
+let coveragePromise = null;
+
+function loadCoverage() {
+  if (!coveragePromise) {
+    coveragePromise = fetch(new URL(COVERAGE_URL, document.baseURI), { cache: "no-cache" }).then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status} reading ${COVERAGE_URL}`);
+      const d = await res.json();
+      const col = Object.fromEntries(d.columns.map((c, i) => [c, i]));
+      coverageData = {
+        ...d,
+        agencies: d.agencies.map((a) => ({
+          name: a[col.name], cls: d.classes[a[col.class]].key, type: d.types[a[col.type]], county: d.counties[a[col.county]],
+          h: a[col.harvested], p: a[col.processed], names: a[col.release_names] || [],
+        })),
+      };
+      return coverageData;
+    });
+    coveragePromise.catch(() => { coveragePromise = null; });
+  }
+  return coveragePromise;
+}
+
+const bitCount = (n) => { let c = 0; for (let x = n; x; x &= x - 1) c += 1; return c; };
+
+// The fiscal years being counted, as bits of coverage.years.
+function coverageMask(d) {
+  return d.years.reduce((m, fy, i) => (state.cyr === "all" || fy >= RECENT_FROM ? m | (1 << i) : m), 0);
+}
+
+function coverageTypes(d) {
+  if (!d) return [];
+  const types = new Set(d.agencies.filter((a) => !state.ccls || a.cls === state.ccls).map((a) => a.type));
+  return [...types].map((t) => [t || NONE, t ? humanize(t) : "(not recorded)"]).sort((a, b) => a[1].localeCompare(b[1]));
+}
+
+function coverageCounties(d) {
+  if (!d) return [];
+  return [...new Set(d.agencies.map((a) => a.county))].sort().map((c) => [c || NONE, c || "(not recorded)"]);
+}
+
+const choiceIs = (wanted, v) => !wanted || (wanted === NONE ? !v : v === wanted);
+
+// The roster under the class, type and county filters, which every table uses.
+function coverageScope(d) {
+  return d.agencies.filter((a) => (!state.ccls || a.cls === state.ccls) && choiceIs(state.ctype, a.type) && choiceIs(state.ccounty, a.county));
+}
+
+function coverageTally(list, m) {
+  const t = { n: list.length, anyH: 0, anyP: 0, years: list.length * bitCount(m), yH: 0, yP: 0 };
+  for (const a of list) {
+    const h = a.h & m;
+    const p = a.p & m;
+    if (h) t.anyH += 1;
+    if (p) t.anyP += 1;
+    t.yH += bitCount(h);
+    t.yP += bitCount(p);
+  }
+  return t;
+}
+
+function fmtPct(n, d) {
+  if (!d) return "–";
+  const pct = (100 * n) / d;
+  if (n && pct < 0.1) return "<0.1%";
+  if (n < d && pct > 99.9) return ">99.9%";
+  return `${n === d || !n ? Math.round(pct) : pct.toFixed(1)}%`;
+}
+
+function coverageBar(n, d, kind, what) {
+  const pct = d ? (100 * n) / d : 0;
+  const text = `${fmtPct(n, d)}: ${fmtInt(n)} of ${fmtInt(d)} ${what} ${kind}`;
+  return el("div", { class: `cov-bar ${kind}`, title: text },
+    el("span", {
+      class: "cov-track", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(d), "aria-valuenow": String(n),
+      "aria-valuetext": text, "aria-label": `${what} ${kind}`,
+    }, el("span", { class: "cov-fill", style: { width: n ? `max(2px, ${pct}%)` : "0" } })),
+    el("span", { class: "cov-pct", text: fmtPct(n, d) }),
+    el("span", { class: "cov-of", text: `${fmtInt(n)} / ${fmtInt(d)}` }));
+}
+
+const barCell = (...args) => el("td", { class: "cov-bar-cell" }, coverageBar(...args));
+
+// One row per group: jurisdictions with any year harvested and processed,
+// then jurisdiction-years harvested and processed.
+function coverageTable(head, groups, m) {
+  const rows = groups.map(({ label, list, cls }) => {
+    const t = coverageTally(list, m);
+    return el("tr", { class: cls || "" },
+      el("th", { scope: "row" }, label),
+      el("td", { class: "num", text: fmtInt(t.n) }),
+      barCell(t.anyH, t.n, "harvested", "jurisdictions"),
+      barCell(t.anyP, t.n, "processed", "jurisdictions"),
+      el("td", { class: "num cov-split", text: fmtInt(t.years) }),
+      barCell(t.yH, t.years, "harvested", "jurisdiction-years"),
+      barCell(t.yP, t.years, "processed", "jurisdiction-years"));
+  });
+  return el("table", { class: "grid cov-grid" },
+    el("thead", {},
+      el("tr", {},
+        el("th", { scope: "col", rowspan: "2", text: head }),
+        el("th", { scope: "colgroup", colspan: "3", class: "cov-group", text: "Jurisdictions (any year)" }),
+        el("th", { scope: "colgroup", colspan: "3", class: "cov-group cov-split", text: "Jurisdiction-years" })),
+      el("tr", {},
+        el("th", { scope: "col", class: "num", text: "Count" }),
+        el("th", { scope: "col", text: "Harvested" }),
+        el("th", { scope: "col", text: "Processed" }),
+        el("th", { scope: "col", class: "num cov-split", text: "Count" }),
+        el("th", { scope: "col", text: "Harvested" }),
+        el("th", { scope: "col", text: "Processed" }))),
+    el("tbody", {}, rows));
+}
+
+function coverageYearTable(d, list, m) {
+  const rows = d.years.map((fy, i) => {
+    const b = 1 << i;
+    let h = 0;
+    let p = 0;
+    for (const a of list) {
+      if (a.h & b) h += 1;
+      if (a.p & b) p += 1;
+    }
+    return el("tr", { class: m & b ? "" : "cov-out" },
+      el("th", { scope: "row", text: `FY ${fmtFy(fy)}` }),
+      el("td", { class: "num", text: fmtInt(list.length) }),
+      barCell(h, list.length, "harvested", `FY ${fmtFy(fy)} reports`),
+      barCell(p, list.length, "processed", `FY ${fmtFy(fy)} reports`));
+  }).reverse();
+  return el("table", { class: "grid cov-grid cov-years-grid" },
+    el("thead", {}, el("tr", {},
+      el("th", { scope: "col", text: "Fiscal year" }),
+      el("th", { scope: "col", class: "num", text: "Jurisdictions" }),
+      el("th", { scope: "col", text: "Report harvested" }),
+      el("th", { scope: "col", text: "Processed" }))),
+    el("tbody", {}, rows));
+}
+
+// Groups of the scope by key, largest first (or by name), each labelled with
+// a link that narrows the tab to it.
+function coverageGroups(list, key, label, param, byName = false) {
+  const groups = new Map();
+  for (const a of list) {
+    const k = key(a) || "";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(a);
+  }
+  return [...groups.entries()]
+    .sort((x, y) => (byName ? 0 : y[1].length - x[1].length) || label(x[0]).localeCompare(label(y[0])))
+    .map(([k, items]) => ({ label: coverageLink(label(k), { [param]: k || NONE }), list: items }));
+}
+
+function setCoverage(params, push = true) {
+  Object.assign(state, params, { cpage: 1 });
+  toolbarView = "";
+  update({ push });
+  scrollContentTop();
+}
+
+function coverageLink(text, params) {
+  return el("a", {
+    href: hrefWith({ view: "coverage", cyr: state.cyr, ccls: state.ccls, ctype: state.ctype, ccounty: state.ccounty, ...params }), text,
+    onclick: (ev) => { ev.preventDefault(); setCoverage(params); },
+  });
+}
+
+function coverageStatus(a, m) {
+  const h = a.h & m;
+  const p = a.p & m;
+  if (state.cstat === "none") return !h;
+  if (state.cstat === "gaps") return h !== m;
+  if (state.cstat === "waiting") return (h & ~p) !== 0;
+  if (state.cstat === "done") return p === m;
+  return true;
+}
+
+function coverageRows(scope, m) {
+  const terms = searchTerms(state.cq);
+  const list = scope.filter((a) => coverageStatus(a, m) &&
+    terms.every((t) => `${a.name} ${a.county} ${a.names.join(" ")}`.toLowerCase().includes(t)));
+  const { col, dir } = state.csort;
+  const sign = dir === "asc" ? 1 : -1;
+  const value = {
+    name: (a) => a.name, type: (a) => humanize(a.type), county: (a) => a.county,
+    harvested: (a) => bitCount(a.h & m), processed: (a) => bitCount(a.p & m),
+  }[col];
+  return list.sort((x, y) => {
+    const a = value(x);
+    const b = value(y);
+    const c = typeof a === "number" ? a - b : String(a).localeCompare(String(b));
+    return sign * c || x.name.localeCompare(y.name);
+  });
+}
+
+function coverageYearCells(d, a, m) {
+  return el("span", { class: "cov-yrs" }, d.years.map((fy, i) => {
+    const b = 1 << i;
+    const kind = a.p & b ? "p" : a.h & b ? "h" : "m";
+    const said = { p: "processed", h: "harvested, not yet processed", m: "not harvested" }[kind];
+    return el("span", { class: `cov-yr ${kind}${m & b ? "" : " out"}${fy === RECENT_FROM ? " first" : ""}`, title: `FY ${fmtFy(fy)}: ${said}` });
+  }));
+}
+
+function coverageList(d, scope, m) {
+  const list = coverageRows(scope, m);
+  const pages = Math.max(1, Math.ceil(list.length / COVERAGE_PAGE));
+  if (state.cpage > pages) state.cpage = pages;
+  const start = (state.cpage - 1) * COVERAGE_PAGE;
+  const span = bitCount(m);
+  const onSort = (c) => { state.csort = toggleSort(state.csort, c, c === "harvested" || c === "processed"); state.cpage = 1; update(); };
+  const s = state.csort;
+  const body = el("tbody", {}, list.slice(start, start + COVERAGE_PAGE).map((a) => el("tr", {},
+    el("td", { class: "col-entity" }, a.names.length
+      ? el("a", { href: entityHref(a.names[0]), title: `Open ${a.names.join(", ")} in the release`, onclick: (ev) => { ev.preventDefault(); openEntity(a.names[0]); }, text: a.name })
+      : a.name),
+    el("td", { text: humanize(a.type) }),
+    el("td", { text: a.county || "" }),
+    el("td", { class: "cov-yrs-cell" }, coverageYearCells(d, a, m)),
+    barCell(bitCount(a.h & m), span, "harvested", "years"),
+    barCell(bitCount(a.p & m), span, "processed", "years"))));
+  if (!list.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 6, text: "No jurisdiction matches." })));
+  const page = (n) => () => { state.cpage = n; update(); $("cov-list")?.scrollIntoView({ block: "start" }); };
+  const swatch = (kind, text) => el("span", { class: "cov-key" }, el("span", { class: `cov-yr ${kind}` }), text);
+  return [
+    el("h3", { class: "section-label", id: "cov-list", text: "Jurisdictions" }),
+    el("div", { class: "result-bar" },
+      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` jurisdiction${list.length === 1 ? "" : "s"}`),
+      el("span", { class: "cov-legend" }, swatch("p", "Processed"), swatch("h", "Harvested, not yet processed"), swatch("m", "Not harvested"))),
+    el("div", { class: "table-scroll" }, el("table", { class: "grid cov-list" },
+      el("thead", {}, el("tr", {},
+        sortHeader("Jurisdiction", "name", s, onSort, "col-entity"),
+        sortHeader("Type", "type", s, onSort),
+        sortHeader("County", "county", s, onSort),
+        el("th", { scope: "col", class: "cov-yrs-cell" }, el("span", { class: "col-label", text: `FY ${fmtFy(d.years[0])} to ${fmtFy(d.years[d.years.length - 1])}` })),
+        sortHeader("Harvested", "harvested", s, onSort),
+        sortHeader("Processed", "processed", s, onSort))),
+      body)),
+    el("div", { class: "pager" },
+      el("button", { class: "btn", type: "button", text: "Prev", disabled: state.cpage <= 1, onclick: page(state.cpage - 1) }),
+      el("span", { class: "muted", text: `page ${state.cpage} of ${pages}` }),
+      el("button", { class: "btn", type: "button", text: "Next", disabled: state.cpage >= pages, onclick: page(state.cpage + 1) })),
+  ];
+}
+
+function renderCoverage(content) {
+  const view = el("div", { class: "stats-view coverage-view" });
+  content.append(view);
+  if (coverageData) {
+    fillCoverage(view, coverageData);
+    return;
+  }
+  view.append(el("p", { class: "muted", text: "Loading coverage…" }));
+  loadCoverage().then(() => {
+    if (state.view !== "coverage") return;
+    toolbarView = "";
+    contentKey = "";
+    renderAll();
+  }).catch((err) => {
+    if (view.isConnected) view.replaceChildren(el("p", { class: "muted", text: `Failed to load coverage: ${err.message}` }));
+  });
+}
+
+function fillCoverage(view, d) {
+  const m = coverageMask(d);
+  const span = d.years.filter((fy, i) => m & (1 << i));
+  const range = `FY ${fmtFy(span[0])} to ${fmtFy(span[span.length - 1])}`;
+  const scope = coverageScope(d);
+  const t = coverageTally(scope, m);
+  const classes = d.classes.filter((c) => !state.ccls || c.key === state.ccls);
+  const byClass = classes.map((c) => ({ label: coverageLink(c.label, { ccls: c.key }), list: scope.filter((a) => a.cls === c.key) }));
+  if (byClass.length > 1) byClass.push({ label: "All", list: scope, cls: "cov-total" });
+  const leftOut = classes.filter((c) => c.left_out.length)
+    .map((c) => `${c.label}: ${c.left_out.map((x) => `${fmtInt(x.count)} ${x.label.toLowerCase()}`).join(", ")}`);
+  const asOf = new Date(d.inventory_utc);
+  const when = Number.isNaN(asOf.getTime()) ? d.inventory_utc
+    : `${asOf.toLocaleString("en-US", { timeZone: "America/Los_Angeles", dateStyle: "medium", timeStyle: "short" })} PT`;
+  const narrowed = [state.ccls && classes[0]?.label, state.ctype && (state.ctype === NONE ? "type not recorded" : humanize(state.ctype)),
+    state.ccounty && (state.ccounty === NONE ? "county not recorded" : `${state.ccounty} County`)].filter(Boolean);
+  view.append(
+    el("p", {},
+      `Each agency on the roster counts once for each fiscal year from FY ${fmtFy(d.years[0])} to ${fmtFy(d.years[d.years.length - 1])}. `,
+      el("strong", { text: "Harvested" }),
+      " means its annual fee report for that year (Gov. Code § 66006) is in hand, or the release already publishes figures for it. ",
+      el("strong", { text: "Processed" }),
+      " means the release publishes figures for it. A year counts only once its report is in hand: an agency that charges no development fees, or never wrote a report, still counts as not harvested, and reports collected but not yet matched to an agency and a year are not counted."),
+    el("p", { class: "muted" },
+      `Counting ${range}${narrowed.length ? `, ${narrowed.join(", ")}` : ""}. Inventory as of ${when}; release ${String(d.release_commit || "").slice(0, 7)}.`,
+      leftOut.length ? ` Left out of every count, holding no report: ${leftOut.join("; ")}.` : ""),
+    el("div", { class: "tiles" },
+      tile("Jurisdictions harvested", fmtPct(t.anyH, t.n), `${fmtInt(t.anyH)} of ${fmtInt(t.n)}, any year`),
+      tile("Jurisdictions processed", fmtPct(t.anyP, t.n), `${fmtInt(t.anyP)} of ${fmtInt(t.n)}, any year`),
+      tile("Jurisdiction-years harvested", fmtPct(t.yH, t.years), `${fmtInt(t.yH)} of ${fmtInt(t.years)}`),
+      tile("Jurisdiction-years processed", fmtPct(t.yP, t.years), `${fmtInt(t.yP)} of ${fmtInt(t.years)}`)),
+    statsBlock("By class", coverageTable("Class", byClass, m)),
+    statsBlock("By fiscal year", coverageYearTable(d, scope, m)),
+    statsBlock("By agency type", coverageTable("Type", coverageGroups(scope, (a) => a.type, (k) => (k ? humanize(k) : "(not recorded)"), "ctype"), m)),
+    el("details", { class: "cov-more", open: Boolean(state.ccounty) },
+      el("summary", { class: "section-label", text: "By county" }),
+      el("div", { class: "table-scroll" }, coverageTable("County", coverageGroups(scope, (a) => a.county, (k) => k || "(not recorded)", "ccounty", true), m))),
+    ...coverageList(d, scope, m),
+  );
 }
 
 // ============================================================ PANEL

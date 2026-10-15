@@ -700,6 +700,38 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .grid.arith tbody + tbody tr:first-child > * { border-top: 0.6rem solid var(--paper-2); }
 .detail ul.arith-notes { margin-top: 0.45rem; color: var(--ink-3); font-size: 0.74rem; }
 
+/* ------------------------------------------------------------ coverage */
+
+.cov-grid thead th { position: static; }
+.cov-grid .cov-group { text-align: left; }
+.cov-grid .cov-split { border-left: 1px solid var(--rule); }
+.cov-grid tbody th { font-weight: 500; white-space: nowrap; }
+.cov-grid .cov-total > * { font-weight: 600; border-top: 1px solid var(--ink-4); }
+.cov-grid .cov-out > * { color: var(--ink-4); }
+.cov-grid .cov-out .cov-fill { opacity: 0.4; }
+.cov-bar-cell { min-width: 12.5rem; }
+.cov-bar { display: grid; grid-template-columns: minmax(4.5rem, 1fr) 3.4rem 6.6rem; align-items: center; gap: 0.45rem; font-family: var(--font-mono); font-size: 0.68rem; font-variant-numeric: tabular-nums; }
+.cov-track { display: block; height: 0.62rem; background: var(--paper-3); border-radius: 1px; overflow: hidden; }
+.cov-fill { display: block; height: 100%; background: var(--link); }
+.cov-bar.processed .cov-fill { background: var(--ok); }
+.cov-pct { text-align: right; color: var(--ink); }
+.cov-of { color: var(--ink-3); white-space: nowrap; }
+.cov-list .cov-bar-cell { min-width: 10rem; }
+.cov-list .cov-bar { grid-template-columns: minmax(3rem, 1fr) 3rem 2.6rem; }
+.cov-yrs-cell { white-space: nowrap; }
+.cov-yrs { display: inline-flex; gap: 2px; vertical-align: middle; }
+.cov-yr { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 1px; background: var(--paper-3); border: 1px solid var(--rule); }
+.cov-yr.h { background: var(--link); border-color: var(--link); }
+.cov-yr.p { background: var(--ok); border-color: var(--ok); }
+.cov-yr.out { opacity: 0.3; }
+.cov-yr.first { margin-left: 5px; }
+.cov-legend { display: inline-flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; }
+.cov-key { display: inline-flex; align-items: center; gap: 0.3rem; }
+.cov-more { margin: 0.7rem 0 0.4rem; }
+.cov-more > summary { cursor: pointer; display: list-item; }
+.coverage-view .result-bar, .coverage-view .pager { position: static; padding-left: 0; padding-right: 0; background: none; }
+.coverage-view #cov-list { scroll-margin-top: 0.5rem; }
+
 /* ------------------------------------------------------------ narrow screens */
 
 .filters-more { display: contents; }
@@ -726,6 +758,11 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
   .kv-list { grid-template-columns: 1fr; }
   .kv-list dt { margin-top: 0.3rem; }
   .amount { font-size: 1.45rem; }
+}
+@media (max-width: 440px) {
+  .view-strip { padding: 0 0.5rem; }
+  .view-tabs { gap: 1px; }
+  .view-tab { padding: 0 0.35rem; font-size: 0.62rem; }
 }
 
 /* Turnstile, shown only when Cloudflare asks for an interaction. */
