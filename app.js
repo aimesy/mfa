@@ -374,7 +374,7 @@ function readState() {
   state.fcounty = p.get("fcounty") || "";
   state.fentity = p.get("fentity") || "";
   state.fsort = parseSort(p.get("fsort"), DEFAULT_FEE_SORT, FEE_SORTS);
-  state.cyr = p.get("cyr") === "all" ? "all" : "";
+  state.cyr = p.get("cyr") === "all" || (!p.has("cyr") && storedCoverageYears() === "all") ? "all" : "";
   state.ccls = COVERAGE_CLASSES.includes(p.get("ccls")) ? p.get("ccls") : "";
   state.ctype = p.get("ctype") || "";
   state.ccounty = p.get("ccounty") || "";
@@ -719,15 +719,15 @@ function renderToolbar() {
     const d = coverageData;
     const set = (k, rebuild = false) => (v) => { state[k] = v; state.cpage = 1; if (rebuild) toolbarView = ""; update(); };
     bar.append(
-      chip("Years", select("cyr", [["", `FY ${fmtFy(RECENT_FROM)} on`], ["all", "All years"]], state.cyr, set("cyr"))),
       chip("Class", select("ccls", [["", "All"], ...(d?.classes || []).map((c) => [c.key, c.label])], state.ccls, (v) => { state.ctype = ""; set("ccls", true)(v); })),
       chip("Type", select("ctype", [["", "All"], ...coverageTypes(d)], state.ctype, set("ctype"))),
       chip("County", select("ccounty", [["", "All"], ...coverageCounties(d)], state.ccounty, set("ccounty"))),
       chip("Search", searchInput("cq", state.cq, "jurisdiction or county", set("cq"))),
       chip("Status", select("cstat", COVERAGE_STATUSES, state.cstat, set("cstat"))),
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => setCoverage({ cyr: "", ccls: "", ctype: "", ccounty: "", cq: "", cstat: "" }, false) }),
+      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => setCoverage({ ccls: "", ctype: "", ccounty: "", cq: "", cstat: "" }, false) }),
       el("span", { class: "sep" }),
       copyButton("Copy link", () => new URL(urlFor(), location.href).href),
+      coverageYearsToggle(),
     );
   }
 }
@@ -741,7 +741,8 @@ function syncToolbar() {
   set("eq", state.eq); set("etype", state.etype); set("ecounty", state.ecounty);
   set("sq", state.sq);
   set("fq", state.fq); set("fcat", state.fcat); set("ftype", state.ftype); set("fcounty", state.fcounty);
-  set("cyr", state.cyr); set("ccls", state.ccls); set("ctype", state.ctype); set("ccounty", state.ccounty); set("cq", state.cq); set("cstat", state.cstat);
+  for (const b of document.querySelectorAll(".cov-years-toggle [data-cyr]")) b.setAttribute("aria-pressed", b.dataset.cyr === state.cyr ? "true" : "false");
+  set("ccls", state.ccls); set("ctype", state.ctype); set("ccounty", state.ccounty); set("cq", state.cq); set("cstat", state.cstat);
 }
 
 function clearFilters() {
@@ -2015,7 +2016,11 @@ function hideTooltip() {
 // of the release.
 
 const COVERAGE_URL = "coverage/coverage.json";
-const RECENT_FROM = "2021-22";
+// The tab counts fiscal years from RECENT_FROM on unless the toggle at the
+// top right says "All years" (cyr=all). This browser remembers the choice
+// under COVERAGE_YEARS_KEY; a link's cyr=all wins over it.
+const RECENT_FROM = "2022-23";
+const COVERAGE_YEARS_KEY = "mfa.coverage.years";
 const COVERAGE_PAGE = 100;
 const COVERAGE_CLASSES = ["municipal", "school", "special"];
 const COVERAGE_STATUSES = [
@@ -2056,6 +2061,30 @@ const bitCount = (n) => { let c = 0; for (let x = n; x; x &= x - 1) c += 1; retu
 // The fiscal years being counted, as bits of coverage.years.
 function coverageMask(d) {
   return d.years.reduce((m, fy, i) => (state.cyr === "all" || fy >= RECENT_FROM ? m | (1 << i) : m), 0);
+}
+
+function storedCoverageYears() {
+  try {
+    return localStorage.getItem(COVERAGE_YEARS_KEY) === "all" ? "all" : "";
+  } catch {
+    return "";
+  }
+}
+
+function coverageYearsToggle() {
+  const pick = (v, text) => el("button", {
+    class: "btn", type: "button", "data-cyr": v, "aria-pressed": state.cyr === v ? "true" : "false", text,
+    onclick: () => {
+      try {
+        localStorage.setItem(COVERAGE_YEARS_KEY, v);
+      } catch {
+        // Storage blocked: the choice still holds for this page and its URL.
+      }
+      if (state.cyr !== v) setCoverage({ cyr: v });
+    },
+  });
+  return el("span", { class: "cov-years-toggle", role: "group", "aria-label": "Fiscal years counted" },
+    pick("", `FY ${fmtFy(RECENT_FROM)} onward`), pick("all", "All years"));
 }
 
 function coverageTypes(d) {
@@ -2160,8 +2189,9 @@ function coverageTable(head, groups, m) {
 }
 
 function coverageYearTable(d, list, m) {
-  const rows = d.years.map((fy, i) => {
+  const rows = d.years.flatMap((fy, i) => {
     const b = 1 << i;
+    if (!(m & b)) return [];
     let h = 0;
     let p = 0;
     let nfH = 0;
@@ -2172,7 +2202,7 @@ function coverageYearTable(d, list, m) {
       if (a.p & b) p += 1;
       else if (a.nofee) nfP += 1;
     }
-    return el("tr", { class: m & b ? "" : "cov-out" },
+    return el("tr", {},
       el("th", { scope: "row", text: `FY ${fmtFy(fy)}` }),
       el("td", { class: "num", text: fmtInt(list.length) }),
       barCell(h, list.length, "harvested", `FY ${fmtFy(fy)} reports`, nfH),
@@ -2244,12 +2274,15 @@ function coverageRows(scope, m) {
   });
 }
 
+// A square for each year counted; under "All years" a gap sets off the years
+// from RECENT_FROM on.
 function coverageYearCells(d, a, m) {
-  return el("span", { class: "cov-yrs" }, d.years.map((fy, i) => {
+  return el("span", { class: "cov-yrs" }, d.years.flatMap((fy, i) => {
     const b = 1 << i;
+    if (!(m & b)) return [];
     const kind = a.p & b ? "p" : a.h & b ? "h" : a.nofee ? "n" : "m";
     const said = { p: "processed", h: "harvested, not yet processed", n: "charges no such fees", m: "not harvested" }[kind];
-    return el("span", { class: `cov-yr ${kind}${m & b ? "" : " out"}${fy === RECENT_FROM ? " first" : ""}`, title: `FY ${fmtFy(fy)}: ${said}` });
+    return el("span", { class: `cov-yr ${kind}${i && fy === RECENT_FROM ? " first" : ""}`, title: `FY ${fmtFy(fy)}: ${said}` });
   }));
 }
 
@@ -2259,6 +2292,7 @@ function coverageList(d, scope, m) {
   if (state.cpage > pages) state.cpage = pages;
   const start = (state.cpage - 1) * COVERAGE_PAGE;
   const span = bitCount(m);
+  const counted = d.years.filter((fy, i) => m & (1 << i));
   const onSort = (c) => { state.csort = toggleSort(state.csort, c, c === "harvested" || c === "processed"); state.cpage = 1; update(); };
   const s = state.csort;
   const body = el("tbody", {}, list.slice(start, start + COVERAGE_PAGE).map((a) => el("tr", {},
@@ -2283,7 +2317,7 @@ function coverageList(d, scope, m) {
         sortHeader("Jurisdiction", "name", s, onSort, "col-entity"),
         sortHeader("Type", "type", s, onSort),
         sortHeader("County", "county", s, onSort),
-        el("th", { scope: "col", class: "cov-yrs-cell" }, el("span", { class: "col-label", text: `FY ${fmtFy(d.years[0])} to ${fmtFy(d.years[d.years.length - 1])}` })),
+        el("th", { scope: "col", class: "cov-yrs-cell" }, el("span", { class: "col-label", text: `FY ${fmtFy(counted[0])} to ${fmtFy(counted[counted.length - 1])}` })),
         sortHeader("Harvested", "harvested", s, onSort),
         sortHeader("Processed", "processed", s, onSort))),
       body)),
@@ -2337,7 +2371,7 @@ function fillCoverage(view, d) {
     state.ccounty && (state.ccounty === NONE ? "county not recorded" : `${state.ccounty} County`)].filter(Boolean);
   view.append(
     el("p", {},
-      `Each agency on the roster counts once for each fiscal year from FY ${fmtFy(d.years[0])} to ${fmtFy(d.years[d.years.length - 1])}. `,
+      `Each agency on the roster counts once for each fiscal year from FY ${fmtFy(span[0])} to ${fmtFy(span[span.length - 1])}${state.cyr === "all" ? "" : ` (All years, at the top right, goes back to FY ${fmtFy(d.years[0])})`}. `,
       el("strong", { text: "Harvested" }),
       " means its annual fee report for that year (Gov. Code § 66006) is in hand, or the release already publishes figures for it. ",
       el("strong", { text: "Processed" }),

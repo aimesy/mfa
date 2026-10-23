@@ -708,8 +708,12 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .cov-grid .cov-split { border-left: 1px solid var(--rule); }
 .cov-grid tbody th { font-weight: 500; white-space: nowrap; }
 .cov-grid .cov-total > * { font-weight: 600; border-top: 1px solid var(--ink-4); }
-.cov-grid .cov-out > * { color: var(--ink-4); }
-.cov-grid .cov-out .cov-fill { opacity: 0.4; }
+.toolbar:has(.cov-years-toggle) { position: relative; padding-right: 15rem; }
+.cov-years-toggle { position: absolute; top: 0.42rem; right: 0.85rem; display: inline-flex; }
+.cov-years-toggle .btn { border-radius: 0; }
+.cov-years-toggle .btn:first-child { border-radius: 2px 0 0 2px; }
+.cov-years-toggle .btn:last-child { border-radius: 0 2px 2px 0; margin-left: -1px; }
+.cov-years-toggle .btn[aria-pressed="true"] { position: relative; background: var(--ink); border-color: var(--ink); color: var(--paper); cursor: default; }
 .cov-bar-cell { min-width: 12.5rem; }
 .cov-bar { display: grid; grid-template-columns: minmax(4.5rem, 1fr) 3.4rem 8.4rem; align-items: center; gap: 0.45rem; font-family: var(--font-mono); font-size: 0.68rem; font-variant-numeric: tabular-nums; }
 .cov-track { display: flex; height: 0.62rem; background: var(--paper-3); border-radius: 1px; overflow: hidden; }
@@ -727,7 +731,6 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .cov-yr.h { background: var(--link); border-color: var(--link); }
 .cov-yr.p { background: var(--ok); border-color: var(--ok); }
 .cov-yr.n { background: var(--nofee); border-color: var(--nofee); }
-.cov-yr.out { opacity: 0.3; }
 .cov-yr.first { margin-left: 5px; }
 .cov-legend { display: inline-flex; flex-wrap: wrap; gap: 0.3rem 0.9rem; }
 .cov-key { display: inline-flex; align-items: center; gap: 0.3rem; }
@@ -759,6 +762,8 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
   .chip input[type=search] { width: 180px; }
   .filters-toggle { display: inline-flex; }
   .toolbar:not(.open) .filters-more { display: none; }
+  .toolbar:has(.cov-years-toggle) { padding-right: 0.6rem; }
+  .cov-years-toggle { position: static; order: -1; flex-basis: 100%; justify-content: flex-end; }
   .kv-list { grid-template-columns: 1fr; }
   .kv-list dt { margin-top: 0.3rem; }
   .amount { font-size: 1.45rem; }

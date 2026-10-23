@@ -59,13 +59,13 @@ URL parameters:
 | `e=<name>` | open a jurisdiction (with `view=fees&fee=<printed name>`, that fee) |
 | `fq`, `fcat`, `ftype`, `fcounty`, `fentity`, `fsort` | fees filters |
 | `sq`, `sentity`, `ssort` | sources filters |
-| `cyr=all`, `ccls`, `ctype`, `ccounty`, `cq`, `cstat`, `csort`, `cpage` | coverage filters (`cyr=all` counts every fiscal year instead of FY 2021-22 on; `ccls` is `municipal`, `school` or `special`; `cstat` is `none`, `gaps`, `waiting` or `done`) |
+| `cyr=all`, `ccls`, `ctype`, `ccounty`, `cq`, `cstat`, `csort`, `cpage` | coverage filters (`cyr=all` counts every fiscal year instead of FY 2022-23 on, as the toggle at the top right of the tab does, and the browser remembers that toggle; `ccls` is `municipal`, `school` or `special`; `cstat` is `none`, `gaps`, `waiting` or `done`) |
 
 The figures filter boxes (`entity`, `cat`, `law`, `area`, `type`, `county`, `scope`) each take several values joined with `|`, as `cat=water/supply|water/stormwater`. Values in one box match any of them; separate boxes must all match. `__none` picks rows with no value. A `cat` value is a namespace (`water`), a subcategory (`water/wastewater`), or a namespace with a trailing slash (`water/`) for its rows with no subcategory; an older link's release `fee_category` code (`cat=sewer`) still opens as its namespace and subcategory. The taxonomy is in `lib/taxonomy.js`: the law a fee is charged under (`law`), what it pays for (`cat`), and whether it applies to the whole agency or only part of it (`area`). A row takes the release's `fee_law`, `fee_namespace`, `fee_subcategory`, `geographic_scope` and `area_name` where its reviewers have recorded them; until then its category is read from `fee_category` (or, marked as placed from the fee name, from the fee name), and its law and area show as not yet classified.
 
 ## Coverage
 
-The Coverage tab shows, for each agency on the collection roster (cities and counties, school districts, special districts) and each fiscal year from FY 2014-15 to 2024-25, whether its annual fee report is harvested (in hand, or already published) and whether the release has processed it (publishes its figures), with progress bars by class, fiscal year, agency type, county and agency. Its data is `coverage/coverage.json` in this repository, not part of the release. `scripts/coverage.mjs` writes it from the collection project's screening inventory (`agency-inventory.json` and `inventory-summary.json`):
+The Coverage tab shows, for each agency on the collection roster (cities and counties, school districts, special districts) and each fiscal year (FY 2022-23 on by default, or every year from FY 2014-15 with the All years toggle), whether its annual fee report is harvested (in hand, or already published) and whether the release has processed it (publishes its figures), with progress bars by class, fiscal year, agency type, county and agency. Its data is `coverage/coverage.json` in this repository, not part of the release. `scripts/coverage.mjs` writes it from the collection project's screening inventory (`agency-inventory.json` and `inventory-summary.json`):
 
 ```sh
 node scripts/coverage.mjs <inventory-dir>
