@@ -252,6 +252,44 @@ const fundYear = (funds, agency, fund, fy) => funds.agencyByName.get(agency).fun
   assert.equal(funds.agencyByName.get("Rialto city").funds.length, 1, "a figure group never joins two agencies");
 }
 
+// One report printing a fund in two tables under two names gives each figure
+// once (Pomona prints its art fund on p8 and again on p13); tables that print
+// different amounts leave the cell unresolved.
+{
+  const art = (over) => row({ receiving_entity: "Pomona city", fiscal_year: "2019-20", ...over });
+  const rows = [
+    art({ fee_program: "Art Fee (133)", fiscal_year: "2018-19", measure: "ending_balance", value_usd: "100", figure_group_id: "g-art" }),
+    art({ fee_program: "Art Program Fee", fiscal_year: "2018-19", measure: "ending_balance", value_usd: "100", figure_group_id: "g-art", is_primary_in_figure_group: "false" }),
+    art({ fee_program: "Art Fee (133)", measure: "beginning_balance", value_usd: "100" }),
+    art({ fee_program: "Art Fee (133)", measure: "total_fees_collected", value_usd: "50" }),
+    art({ fee_program: "Art Fee (133)", measure: "ending_balance", value_usd: "150" }),
+    art({ fee_program: "Art Program Fee", measure: "beginning_balance", value_usd: "100", physical_pdf_page: "13" }),
+    art({ fee_program: "Art Program Fee", measure: "total_fees_collected", value_usd: "50", physical_pdf_page: "13" }),
+    art({ fee_program: "Art Program Fee", measure: "ending_balance", value_usd: "160", physical_pdf_page: "13" }),
+  ];
+  const [fund] = buildFunds(rows).agencyByName.get("Pomona city").funds;
+  const y = fund.years.find((v) => v.fy === "2019-20");
+  assert.equal(y.cells.beginning_balance.value, 10000);
+  assert.equal(y.cells.total_fees_collected.value, 5000);
+  assert.deepEqual([y.cells.ending_balance.kind, y.cells.ending_balance.value], ["unresolved", null]);
+}
+
+// A line not labeled a total that equals the sum of the others, to the cent,
+// is the total: San Marino prints the year's school fees on p3 and their
+// residential and commercial parts on p6.
+{
+  const rows = [
+    row({ measure: "total_fees_collected", measure_as_printed: "Statutory School Fees Collected", value_usd: "81339.07", physical_pdf_page: "3" }),
+    row({ measure: "total_fees_collected", measure_as_printed: "Residential Fees", value_usd: "80456.40", physical_pdf_page: "6" }),
+    row({ measure: "total_fees_collected", measure_as_printed: "Commercial Fees", value_usd: "882.67", physical_pdf_page: "6" }),
+  ];
+  const cell = fundYear(buildFunds(rows), "Madera city", "Parks", "2022-23").cells.total_fees_collected;
+  assert.deepEqual([cell.kind, cell.value, cell.used.length], ["total", 8133907, 1]);
+  const pair = [row({ measure: "total_fees_collected", value_usd: "50" }), row({ measure: "total_fees_collected", value_usd: "50" })];
+  const two = fundYear(buildFunds(pair), "Madera city", "Parks", "2022-23").cells.total_fees_collected;
+  assert.deepEqual([two.kind, two.value], ["sum", 10000], "two equal lines are two lines, not a total and its part");
+}
+
 // Statewide ending balances: an account one report prints in two tables
 // under two names counts once; zero balances are never taken for twins.
 {
@@ -300,6 +338,9 @@ if (existsSync(releaseCsv)) {
   const primary = fees.rows.filter((r) => r.is_primary_in_figure_group === "true");
   assert.equal(used.size, primary.filter((r) => FUND_MEASURES.some((m) => m.key === r.measure)).length, "every primary fund row lands in one cell");
   assert.ok(fees.rows.every((r) => r.is_primary_in_figure_group === "true" || !used.has(r.record_id)), "no corroborating row is used");
+  const pomona = fundYear(funds, "Pomona city", "Art in Public Places Fee (133-1712-40119-00000)", "2019-20");
+  assert.deepEqual([pomona.cells.beginning_balance.value, pomona.cells.ending_balance.value], [166032200, 238583600], "Pomona's p8 and p13 tables count once");
+  assert.equal(fundYear(funds, "San Marino Unified", "Capital Facilities Fund", "2020-21").cells.total_fees_collected.value, 8133907);
   const c = s.checks;
   const run = c.closes + c.rounding + c.incomplete + c.differs;
   console.log(`release: ${s.rows} rows, ${s.primary} primary, ${s.agencies} agencies, ${s.funds} funds, ${s.fundYears} fund years, ${s.years.length} fiscal years (${s.years[0]} to ${s.years[s.years.length - 1]})`);

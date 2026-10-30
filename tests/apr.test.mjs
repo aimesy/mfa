@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import {
   UNIT_CATS, CAT_COLUMNS, ROW_COLUMNS, JURISDICTION_COLUMNS, parseDate, fyLabel, fyOf, dateProblem, normId,
   dedupeActivity, fyCoverage, normName, rosterKeys, rosterIndex, matchJurisdiction, APR_ALIASES, releaseKey, releaseIndex,
-  releaseNamesFor, agencyFees, readApr, titleCase, joinPermits, median,
+  releaseNamesFor, feeYear, agencyFees, readApr, titleCase, joinPermits, median,
 } from "../lib/apr.js";
 import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, DEFAULT_PERMITS_SORT } from "../lib/apr-view.js";
 
@@ -317,6 +317,26 @@ const balanced = (stats) => assert.equal(stats.dated,
   assert.equal(fees.get("2019-20").names.size, 2);
   assert.equal(fees.get("2021-22").sum, -20);
   assert.equal(fees.has("2020-21"), false, "no finite primary value: missing, not zero");
+}
+
+// Fee years: July to June only. A bare year ending June 30 names the year
+// ending then; an undated bare year, and other calendars, stay unjoined.
+{
+  const fig = (fy, start, end) => ({ fy, value: 1, primary: { _primary: true, fiscal_year_start: start, fiscal_year_end: end } });
+  assert.equal(feeYear(fig("2021-22", "2021-07-01", "2022-06-30")), "2021-22");
+  assert.equal(feeYear(fig("2021-22", "", "")), "2021-22");
+  assert.equal(feeYear(fig("2021-22", "", "2022-06-30")), "2021-22");
+  assert.equal(feeYear(fig("2022", "", "2022-06-30")), "2021-22", "Fresno: FY 2022 ends June 30, 2022");
+  assert.equal(feeYear(fig("2022", "", "")), "");
+  assert.equal(feeYear(fig("2022", "", "2023-06-30")), "", "label and end disagree");
+  assert.equal(feeYear(fig("2021-22", "2021-09-01", "2022-08-31")), "", "September to August");
+  assert.equal(feeYear(fig("2024", "", "2024-09-30")), "", "October to September");
+  assert.equal(feeYear({ fy: "2021-22", value: 1, primary: { _primary: true } }), "2021-22");
+  const fees = agencyFees(["F"], new Map([["F", { name: "F", figures: [
+    fig("2022", "", "2022-06-30"), fig("2021-22", "2021-07-01", "2022-06-30"), fig("2021-22", "2021-09-01", "2022-08-31"),
+  ] }]]));
+  assert.deepEqual([...fees.keys()], ["2021-22"]);
+  assert.equal(fees.get("2021-22").sum, 2);
 }
 
 // The join: units and fees by agency year; missing stays missing.

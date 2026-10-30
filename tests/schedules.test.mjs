@@ -564,11 +564,12 @@ const fetchOk = (text) => async (p) => {
   content.replaceChildren();
   renderSchedules(content, ctx);
   assert.equal(byClass(content, "result-bar")[0].textContent, "5 rows · 3 agencies");
-  // An agency the file does not name falls back to the statewide view.
+  // An agency the file does not name falls back to the statewide view, with a notice.
   sel.agency = "Nowhere";
   content.replaceChildren();
   renderSchedules(content, ctx);
   assert.equal(byTag(content, "h2").length, 0);
+  assert.ok(byClass(content, "muted").some((n) => n.textContent === "No agency named Nowhere has fee schedules."));
 }
 
 // More rows than one page: a pager, and the page number stays inside the range.
