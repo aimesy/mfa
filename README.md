@@ -71,7 +71,7 @@ The Coverage tab shows, for each agency on the collection roster (cities and cou
 node scripts/coverage.mjs <inventory-dir>
 ```
 
-The file holds only names, class, type, county, two year bitmasks, a `no_fees` flag and the release names that open each agency's page. Agencies the inventory shows do not charge development fees (`excluded_with_evidence`) carry `no_fees`, and the tab fills their unharvested share of each bar in yellow; roster rows screened out as duplicates or as recorded on another roster are counted, not listed. Rerun it and commit the file to refresh the tab.
+The file holds only names, class, type, county, two year bitmasks, a `no_fees` flag and the release names that open each agency's page. Agencies the inventory shows do not charge development fees (`excluded_with_evidence`) carry `no_fees`, and the tab fills their unharvested share of each bar in yellow; roster rows screened out as duplicates or as recorded on another roster are counted, not listed. The tab sorts each agency by its type, not by the roster that holds it: the municipal roster also screens school districts, special districts and joint powers authorities, and the script counts those under School districts or Special districts, moving their roster counts with them. Rerun it and commit the file to refresh the tab.
 
 ## Run it locally
 

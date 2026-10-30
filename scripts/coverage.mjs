@@ -103,16 +103,37 @@ const indexOf = (list, v) => {
   return i;
 };
 
+// The inventory's class is the roster that holds an agency, and the
+// municipal roster also holds school districts, special
+// districts and joint powers authorities its lane screens. The tab sorts by
+// what an agency is: only cities and counties count as cities and counties,
+// school types as school districts, and every other type on the municipal
+// roster as a special district. The roster counts move with them.
+const MUNICIPAL_TYPES = new Set(["city", "county", "city_and_county"]);
+const SCHOOL_TYPE = /school|education|charter|community_college|regional_occupational/;
+const classOf = (a) => {
+  const type = a.agency_type || "";
+  if (MUNICIPAL_TYPES.has(type)) return "municipal";
+  if (a.class !== "municipal" || !type) return a.class;
+  return SCHOOL_TYPE.test(type) ? "school" : "special";
+};
+const moved = {};
+
 const leftOut = {};
 const agencies = [];
 for (const a of Object.values(inventory)) {
   if (!classIndex.has(a.class)) throw new Error(`unknown class ${a.class} for ${a.agency_id}`);
+  const cls = classOf(a);
+  if (cls !== a.class) {
+    moved[a.class] = (moved[a.class] || 0) - 1;
+    moved[cls] = (moved[cls] || 0) + 1;
+  }
   const harvested = mask([...a.annual_years_held_provisional, ...a.published_years]) | (crawlHarvested.get(a.agency_id) || 0);
   const processed = mask(a.published_years);
   const reason = LEFT_OUT[a.screening_status];
   if (reason && !harvested) {
-    leftOut[a.class] ??= {};
-    leftOut[a.class][a.screening_status] = (leftOut[a.class][a.screening_status] || 0) + 1;
+    leftOut[cls] ??= {};
+    leftOut[cls][a.screening_status] = (leftOut[cls][a.screening_status] || 0) + 1;
     continue;
   }
   // The names the release prints for this agency, so the tab can open them.
@@ -120,7 +141,7 @@ for (const a of Object.values(inventory)) {
   for (const recs of Object.values(a.published_records || {})) {
     for (const r of recs) if (r.file === RELEASE_FILE && r.row?.receiving_entity) names.add(r.row.receiving_entity.trim());
   }
-  const row = [a.agency_name.trim(), classIndex.get(a.class), indexOf(types, a.agency_type || ""), indexOf(counties, a.county || ""), harvested, processed,
+  const row = [a.agency_name.trim(), classIndex.get(cls), indexOf(types, a.agency_type || ""), indexOf(counties, a.county || ""), harvested, processed,
     verdicts.get(a.agency_id) ?? (a.screening_status === NO_FEES ? 1 : 0)];
   if (names.size) row.push([...names].sort());
   agencies.push(row);
@@ -134,7 +155,7 @@ const data = {
   release_commit: summary.published_commit,
   years,
   classes: CLASSES.map(([key, label]) => ({
-    key, label, roster: roster[key] ?? null,
+    key, label, roster: roster[key] == null ? null : roster[key] + (moved[key] || 0),
     left_out: Object.entries(leftOut[key] || {}).map(([status, count]) => ({ label: LEFT_OUT[status], count })),
   })),
   types,
@@ -152,5 +173,7 @@ const tmp = `${out}.tmp`;
 writeFileSync(tmp, `${JSON.stringify(data)}\n`);
 renameSync(tmp, out);
 console.log(`${out}: ${agencies.length} agencies (${agencies.filter((r) => r[6]).length} charge no development fees), ${years[0]} to ${years[years.length - 1]}, inventory ${summary.written_utc}, release ${String(summary.published_commit).slice(0, 7)}`);
+const movedOut = Object.values(moved).filter((n) => n < 0).reduce((n, x) => n - x, 0);
+if (movedOut) console.log(`class: ${movedOut} agencies sorted by type into another class (${CLASSES.map(([k]) => `${k} ${moved[k] > 0 ? "+" : ""}${moved[k] || 0}`).join(", ")})`);
 if (opt.screening) console.log(`screening: ${verdicts.size} verdicts used, ${unknown.screening} rows with an agency_id not in the inventory`);
 if (opt.harvest) console.log(`harvest: ${crawlHarvested.size} agencies with crawl reports, ${unknown.harvest} rows with an agency_id not in the inventory`);
