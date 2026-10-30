@@ -739,6 +739,98 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .coverage-view .result-bar, .coverage-view .pager { position: static; padding-left: 0; padding-right: 0; background: none; }
 .coverage-view #cov-list { scroll-margin-top: 0.5rem; }
 
+/* ------------------------------------------------------------ funds */
+
+.funds-view .funds-note { max-width: 92ch; font-size: 0.74rem; margin: 0.2rem 0 0.4rem; }
+.funds-search { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.2rem 0 0.45rem; }
+.funds-count { font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-3); }
+.funds-head .back { font-family: var(--font-mono); font-size: 0.68rem; }
+.funds-head h2 { font-family: var(--font-serif); font-size: 1.35rem; margin: 0.35rem 0 0.2rem; }
+.funds-grid tbody th { font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+.funds-cell .ev-links { margin-top: 0.15rem; }
+.funds-amt { display: flex; justify-content: flex-end; align-items: baseline; gap: 0.3rem; }
+.funds-tag {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 0 0.2rem;
+  background: var(--paper-2);
+}
+.funds-differs { color: var(--warn-ink); font-family: var(--font-sans); }
+.funds-lines { margin-top: 0.15rem; text-align: left; white-space: normal; }
+.funds-lines summary, .funds-check summary { cursor: pointer; color: var(--link); font-family: var(--font-mono); font-size: 0.64rem; }
+.funds-lines ul { list-style: none; margin: 0.2rem 0 0; padding: 0; min-width: 16rem; }
+.funds-lines li { display: flex; gap: 0.4rem; align-items: baseline; padding: 0.1rem 0; border-top: 1px solid var(--rule-2); }
+.funds-line-label { flex: 1 1 auto; color: var(--ink-2); font-family: var(--font-sans); }
+.funds-line-amt { white-space: nowrap; }
+.funds-check { white-space: nowrap; }
+.funds-check .funds-ok { color: var(--ok); font-weight: 600; }
+.funds-check .funds-off { color: var(--warn); font-weight: 700; }
+.funds-check .funds-part { color: var(--ink-2); font-weight: 600; }
+.funds-formula { margin-top: 0.2rem; font-family: var(--font-mono); font-size: 0.64rem; color: var(--ink-2); white-space: normal; min-width: 18rem; max-width: 34rem; }
+@media (max-width: 720px) {
+  .funds-view { padding: 0.7rem 1rem 2rem; }
+  .funds-lines ul, .funds-formula { min-width: 12rem; }
+}
+
+/* ------------------------------------------------------------ schedules */
+
+.schedules-view .schedules-absent { font-size: 0.9rem; color: var(--ink-2); }
+.schedules-view .toolbar { padding-left: 0; padding-right: 0; background: none; border-bottom: 0; }
+.schedules-view .result-bar, .schedules-view .pager { position: static; padding-left: 0; padding-right: 0; background: none; }
+.schedules-rejected { font-size: 0.74rem; margin: 0.3rem 0 0.5rem; }
+.schedules-rejected > summary { cursor: pointer; color: var(--ink-2); }
+.schedules-rejected code { font-family: var(--font-mono); font-size: 0.68rem; }
+.schedules-head .back { font-family: var(--font-mono); font-size: 0.68rem; }
+.schedules-head h2 { font-family: var(--font-serif); font-size: 1.35rem; margin: 0.35rem 0 0.2rem; }
+.schedules-program { margin: 0.4rem 0 1rem; }
+.schedules-program h4 { font-family: var(--font-serif); font-size: 1rem; margin: 0.5rem 0 0.15rem; }
+.schedules-type { font-family: var(--font-mono); font-size: 0.64rem; font-weight: 400; }
+.schedules-table-name { font-family: var(--font-mono); font-size: 0.66rem; margin: 0 0 0.3rem; }
+.schedules-grid td { vertical-align: top; }
+.schedules-grid .sched-unpriced { color: var(--ink-3); }
+.schedules-grid .col-evidence { width: 82px; }
+.sched-printed summary { cursor: pointer; color: var(--link); font-family: var(--font-mono); font-size: 0.66rem; }
+.sched-printed dl { margin: 0.25rem 0 0; max-width: 60ch; font-size: 0.72rem; }
+.sched-printed dt { font-family: var(--font-mono); font-size: 0.6rem; color: var(--ink-3); text-transform: uppercase; margin-top: 0.2rem; }
+.sched-printed dd { margin: 0; white-space: normal; }
+
+/* ------------------------------------------------------------ permits (APR Table A2) */
+
+.permits-view .permits-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  margin: 0.1rem 0 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-2);
+}
+.permits-view .permits-key { display: inline-flex; align-items: center; gap: 0.35rem; }
+.permits-view .pt.cmp { fill: var(--bar-fill); stroke: var(--paper); stroke-width: 1.5; }
+.permits-view .pt.alt { fill: none; stroke: var(--ink-3); stroke-width: 1.25; }
+.permits-view .pt.on { stroke: var(--ink); stroke-width: 2; }
+.permits-view .median { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; fill: none; }
+.permits-view .axis-title { fill: var(--ink-2); font-family: var(--font-sans); font-size: 11px; }
+.permits-view .permits-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.permits-view .result-bar, .permits-view .pager { position: static; padding-left: 0; padding-right: 0; background: none; }
+.permits-view #permits-list { scroll-margin-top: 0.5rem; }
+.permits-list .permits-fy { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.permits-list .permits-cov { white-space: nowrap; font-size: 0.72rem; }
+.permits-list .permits-flag { display: block; font-size: 0.66rem; color: var(--ink-3); white-space: normal; }
+
 /* ------------------------------------------------------------ narrow screens */
 
 .filters-more { display: contents; }
@@ -756,7 +848,10 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 }
 @media (max-width: 720px) {
   .hide-narrow { display: none; }
-  .view-tab { padding: 0 0.5rem; }
+  /* Nine tabs outrun a phone: the strip scrolls sideways, not the page. The
+     extra pixel below keeps the active tab over the strip's bottom rule. */
+  .view-tabs { min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding-bottom: 1px; margin-bottom: -1px; }
+  .view-tab { flex: none; padding: 0 0.5rem; }
   .entity-bar { padding: 0.45rem 0.6rem; }
   .toolbar { padding: 0.4rem 0.6rem; }
   .chip input[type=search] { width: 180px; }

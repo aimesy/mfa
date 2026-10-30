@@ -8,10 +8,13 @@
 //                   instead of aimesy.github.io (for sandboxes that cannot reach it)
 //   BROWSER_PROXY   passed to Chromium as --proxy-server
 //   SCREENSHOT_DIR  write screenshots here
+//   MFA_SCHEDULES_CSV  serve this file as data/fee-schedules.csv when the
+//                   release does not carry one (the Schedules tab otherwise
+//                   says the file is not yet published)
 
 import assert from "node:assert/strict";
 import { execSync } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { serve, VIEWER_ROOT, DATA_ROOT } from "./serve.mjs";
@@ -78,6 +81,21 @@ async function redRatio(page) {
     for (let k = 0; k < px.length; k += 4) if (px[k] > 150 && px[k + 1] < 110 && px[k + 2] < 110) red += 1;
     return red / (2 * (w + h));
   })));
+}
+
+// The text of the first node matching sel, or null.
+const textOf = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent ?? null, sel);
+
+// An agency opened from a tab's list goes into the address bar, and back and
+// forward move between the list and the agency.
+async function roundTrip(page, { param, title, list }) {
+  const name = new URL(page.url()).searchParams.get(param);
+  await page.goBack();
+  await page.waitForSelector(list);
+  assert.equal(new URL(page.url()).searchParams.get(param), null, `back leaves ${name}`);
+  await page.goForward();
+  await page.waitForFunction(([s, n]) => document.querySelector(s)?.textContent === n, [title, name]);
+  assert.equal(new URL(page.url()).searchParams.get(param), name, `forward returns to ${name}`);
 }
 
 async function openFigureById(page, id) {
@@ -341,6 +359,69 @@ try {
   await page.waitForSelector(".filter-tag");
   assert.equal((await page.locator(".result-bar .count strong").innerText()).replace(/,/g, ""), catCount);
 
+  // Funds: an agency in the list opens its accounts.
+  await page.goto(`${base}&view=funds`);
+  const fundLink = page.locator('.funds-view tbody a[href*="fa="]').first();
+  await fundLink.waitFor();
+  const fundAgency = await fundLink.textContent();
+  await fundLink.click();
+  await page.waitForFunction((n) => document.querySelector(".funds-head h2")?.textContent === n, fundAgency);
+  assert.equal(new URL(page.url()).searchParams.get("fa"), fundAgency);
+  assert.ok(await page.locator(".funds-grid").count() > 0, "the agency's funds are tabled");
+  await shot(page, "07a-funds");
+  await roundTrip(page, { param: "fa", title: ".funds-head h2", list: "#funds-q" });
+
+  // Schedules: with no file in the release the tab says so, and the 404 for
+  // it (with the console line Chromium logs for it) is expected.
+  const schedulesCsv = process.env.MFA_SCHEDULES_CSV || "";
+  const schedulesInRelease = existsSync(path.join(root, "data/fee-schedules.csv"));
+  if (schedulesCsv && !schedulesInRelease) {
+    await page.route(/\/data\/fee-schedules\.csv(\?|$)/, (route) => route.fulfill({ path: schedulesCsv, contentType: "text/csv" }));
+  }
+  const mark = problems.length;
+  await page.goto(`${base}&view=schedules`);
+  if (schedulesCsv || schedulesInRelease) {
+    const schedLink = page.locator('.schedules-grid tbody a[href*="scagency="]').first();
+    await schedLink.waitFor();
+    const schedAgency = await schedLink.textContent();
+    await schedLink.click();
+    await page.waitForFunction((n) => document.querySelector(".schedules-head h2")?.textContent === n, schedAgency);
+    assert.equal(new URL(page.url()).searchParams.get("scagency"), schedAgency);
+    await shot(page, "07b-schedules");
+    await roundTrip(page, { param: "scagency", title: ".schedules-head h2", list: ".schedules-toolbar" });
+  } else {
+    await page.waitForSelector(".schedules-absent");
+    assert.equal(await textOf(page, ".schedules-absent"), "Fee schedules are not yet published.");
+    const expected = (p) => /^HTTP 404 \S*\/data\/fee-schedules\.csv(\?\S*)?$/.test(p) || /^console: Failed to load resource: .*\b404\b/.test(p);
+    problems.splice(mark, problems.length - mark, ...problems.slice(mark).filter((p) => !expected(p)));
+  }
+
+  // Permits: the chart steps from point to point by keyboard, and a name in
+  // the table opens its jurisdiction.
+  await page.goto(`${base}&view=permits`);
+  await page.waitForSelector(".permits-chart .hit");
+  assert.ok(await page.locator(".permits-chart .pt").count() > 1, "the chart plots more than one agency year");
+  await page.focus(".permits-chart .hit");
+  await page.waitForSelector(".permits-chart .pt.on");
+  const firstPoint = await textOf(page, ".permits-live");
+  assert.ok(firstPoint, "focus reads out the first point");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction((t) => document.querySelector(".permits-live")?.textContent !== t, firstPoint);
+  assert.equal(await page.locator(".permits-chart .pt.on").count(), 1, "one point is active");
+  await page.keyboard.press("ArrowLeft");
+  await page.waitForFunction((t) => document.querySelector(".permits-live")?.textContent === t, firstPoint);
+  await shot(page, "07c-permits");
+  const permitLink = page.locator(".permits-list tbody .col-entity a").first();
+  const permitEntity = new URL(await permitLink.getAttribute("href"), page.url()).searchParams.get("e");
+  await permitLink.click();
+  await page.waitForFunction((n) => document.querySelector(".dossier-head h2")?.textContent === n, permitEntity);
+  assert.equal(new URL(page.url()).searchParams.get("e"), permitEntity);
+  await page.goBack();
+  await page.waitForSelector(".permits-chart .hit");
+  assert.match(page.url(), /[?&]view=permits/, "back returns to Permits");
+  await page.goForward();
+  await page.waitForFunction((n) => document.querySelector(".dossier-head h2")?.textContent === n, permitEntity);
+
   // Dark theme and a phone-width layout
   const dark = await newPage({ width: 1280, height: 800 }, () => localStorage.setItem("amyc-theme", "cypress"));
   await dark.goto(`${base}&view=figures&f=${encodeURIComponent(primary[0].figure_group_id)}`);
@@ -356,6 +437,16 @@ try {
   await phone.locator(".figures-grid tbody tr .pdf-btn").first().click();
   await phone.waitForSelector(".pv-box.current", { state: "attached" });
   await shot(phone, "09-phone");
+  await phone.keyboard.press("Escape");
+  // The tab strip scrolls inside itself, so the last tabs are reachable and
+  // the page still does not scroll sideways.
+  await phone.locator('.view-tab[data-view="permits"]').click();
+  await phone.waitForSelector(".permits-chart .hit");
+  assert.match(phone.url(), /[?&]view=permits/);
+  assert.equal(await textOf(phone, ".view-tab.active"), "Permits");
+  const phoneOverflow = await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert.ok(phoneOverflow <= 1, `Permits must not scroll sideways at phone width (overflow ${phoneOverflow}px)`);
+  await shot(phone, "10-phone-permits");
 
   assert.deepEqual(problems, [], "no page errors, console errors or failed requests");
   console.log("smoke test passed");

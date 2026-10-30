@@ -27,6 +27,9 @@ The release claims that every figure was read from the original report, outlined
 - **Fees.** Each fee's history, year by year: what was collected, the name the report printed, and the page. An agency that renamed or renumbered a fund keeps one fee, labelled with every number it carried (Woodland's "Road Development Fund (Fund 582/1582)"). Each join is listed in `lib/fee-links.js` with its evidence (the old name's closing balance is the new name's opening balance, the new report reprints the old figures, or the names differ only in wording) and shown on the year the name changed. The release's rows are unchanged. A jurisdiction's name (in the table, or on an open figure) filters the list to its fees; clicked again, it opens the jurisdiction's page.
 - **Sources.** Each original report can be opened in the viewer, with every published figure in it listed and boxed. An agency's name (in the table, or on an open report or figure) filters the list to its reports, and the panel stays open; clicked again, it opens the jurisdiction's page.
 - **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. A jurisdiction's name filters the table to it; clicked again, it opens the jurisdiction's page. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked; **Go to document** opens that report with every figure published from it listed.
+- **Funds.** Each agency's impact fee accounts by fund and fiscal year, from the release's `data/fee-account-figures.csv`: the balances and flows its report prints, primary figures only, each linked to its page. **Check** adds the flows in the release to the beginning balance and compares the result with the printed ending balance; it is incomplete while a flow is not in the release. The tab opens on the ending balances summed by fiscal year (funds of one agency and year with matching balances from the same report count once) and a list of agencies to search.
+- **Schedules.** The fee rates each agency prints for new development, one row per printed cell, from the release's `data/fee-schedules.csv`; until the release carries that file, the tab says so and shows nothing else. Rates are shown as printed and never added up. Filter by agency, fee type, basis, purpose and status, and open the page each rate was read from.
+- **Permits.** The housing units each city and county permitted by fiscal year, from Table A2 of the Housing Element Annual Progress Reports that HCD publishes, beside the fees the release reports the agency collected that year, and fees per unit for a year with both of its reports in hand and fees under one release name. A scatter of units against fees sits above a table to sort and page. Its data is `apr/apr.json` (see [Permits data](#permits-data)).
 - **Stats.** Figures by fiscal year, fee category, jurisdiction type and land use, each linking to the figures it counts; the cohort accounting, refusals by reason, row counts for each data table, and links to the method documents. The site offers no bulk downloads.
 
 Every view is in the URL, so any figure, filter or page is a link. **Cite** copies a citation with a link pinned to the release commit.
@@ -52,13 +55,16 @@ URL parameters:
 |---|---|
 | `ref=<sha>` | read that release commit instead of the current `main` (the Worker serves a full commit hash, or `main`) |
 | `data=../` | read from a same-origin path instead of the Worker (local development) |
-| `view` | `entities` (default), `fees`, `sources`, `figures`, `coverage`, `stats` (`about` still opens it) |
+| `view` | `entities` (default), `fees`, `sources`, `figures`, `funds`, `schedules`, `permits`, `coverage`, `stats` (`about` still opens it) |
 | `f=<figure_group_id>` | open that figure's evidence; `tab=original&pg=N` for the original report |
 | `doc=<source_id>` | open that report |
 | `q`, `type`, `county`, `cat`, `law`, `area`, `scope`, `from`, `to`, `arith`, `entity`, `source`, `sort`, `page`, `size` | figures filters |
 | `e=<name>` | open a jurisdiction (with `view=fees&fee=<printed name>`, that fee) |
 | `fq`, `fcat`, `ftype`, `fcounty`, `fentity`, `fsort` | fees filters |
 | `sq`, `sentity`, `ssort` | sources filters |
+| `fa=<agency>`, `faq` | funds: open that agency's accounts, or (without `fa`) search the agency list |
+| `scagency`, `scq`, `sctype`, `scbasis`, `scpurpose`, `scstatus`, `scsort`, `scdir`, `scpage` | schedules filters (`scagency` opens one agency's rates) |
+| `pq`, `ptype`, `pcounty`, `pfy`, `pshow`, `psort`, `ppage` | permits filters (`ptype` is `city`, `county` or `city_and_county`; without `pshow` the table lists years with units and fees, `comparable` years with fees per unit, `all` every year; `psort` is a column and direction, as `perUnit.desc`) |
 | `cyr=all`, `ccls`, `ctype`, `ccounty`, `cq`, `cstat`, `csort`, `cpage` | coverage filters (`cyr=all` counts every fiscal year instead of FY 2022-23 on, as the toggle at the top right of the tab does, and the browser remembers that toggle; `ccls` is `municipal`, `school` or `special`; `cstat` is `none`, `gaps`, `waiting` or `done`) |
 
 The figures filter boxes (`entity`, `cat`, `law`, `area`, `type`, `county`, `scope`) each take several values joined with `|`, as `cat=water/supply|water/stormwater`. Values in one box match any of them; separate boxes must all match. `__none` picks rows with no value. A `cat` value is a namespace (`water`), a subcategory (`water/wastewater`), or a namespace with a trailing slash (`water/`) for its rows with no subcategory; an older link's release `fee_category` code (`cat=sewer`) still opens as its namespace and subcategory. The taxonomy is in `lib/taxonomy.js`: the law a fee is charged under (`law`), what it pays for (`cat`), and whether it applies to the whole agency or only part of it (`area`). A row takes the release's `fee_law`, `fee_namespace`, `fee_subcategory`, `geographic_scope` and `area_name` where its reviewers have recorded them; until then its category is read from `fee_category` (or, marked as placed from the fee name, from the fee name), and its law and area show as not yet classified.
@@ -72,6 +78,16 @@ node scripts/coverage.mjs <inventory-dir>
 ```
 
 The file holds only names, class, type, county, two year bitmasks, a `no_fees` flag and the release names that open each agency's page. Agencies the inventory shows do not charge development fees (`excluded_with_evidence`) carry `no_fees`, and the tab fills their unharvested share of each bar in yellow; roster rows screened out as duplicates or as recorded on another roster are counted, not listed. The tab sorts each agency by its type, not by the roster that holds it: the municipal roster also screens school districts, special districts and joint powers authorities, and the script counts those under School districts or Special districts, moving their roster counts with them. Rerun it and commit the file to refresh the tab.
+
+## Permits data
+
+The Permits tab's data is `apr/apr.json` in this repository, not part of the release. `scripts/apr.mjs` writes it from HCD's public APR Table A2 file (`tablea2.csv`, in the "Housing Element Annual Progress Report (APR) Data by Jurisdiction and Year" dataset on data.ca.gov), with `coverage/coverage.json`'s roster to name each APR jurisdiction's agency:
+
+```sh
+node scripts/apr.mjs [tablea2.csv] [out.json] [--coverage coverage.json] [--updated YYYY-MM-DD] [--offline]
+```
+
+The file holds counts only: for each jurisdiction and fiscal year, the units and records given building permits (split by deed restriction and by unit category), entitlements and certificates of occupancy, and the report years each jurisdiction filed. No addresses, APNs, tracking IDs, project names or coordinates leave the script. It records the source file's size, SHA-256 and MD5, and the portal's last modified date when the portal's MD5 and size match the file (checked live unless `--offline`). The rules for repeats across reports and for matching names are in the script's header and `lib/apr.js`; the tab prints the rule and the source. Rerun it and commit the file to refresh the tab.
 
 ## Run it locally
 
@@ -88,6 +104,10 @@ node tests/serve.mjs          # this repo at /mfa/, the release at /mfa-data/, w
 node check-static.mjs         # shared theme, page policy, no HTML injection, data rules
 node tests/model.test.mjs     # CSV reader, figure model, outline geometry (plus the real release when a checkout is present)
 node tests/worker.test.mjs    # data Worker: path allowlist, origin check, rate limit, headers
+node tests/seo.test.mjs       # static pages for search engines
+node tests/funds.test.mjs     # Funds tab: fund accounts, the balance check, twins
+node tests/schedules.test.mjs # Schedules tab: reader, filters, sort (plus the pilot file with MFA_SCHEDULES_CSV)
+node tests/apr.test.mjs       # Permits tab: dedupe, name matching, the join to fees (plus apr/apr.json)
 node tests/smoke.mjs          # Chromium via Playwright against the local release
 ```
 

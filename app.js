@@ -25,6 +25,11 @@ import { PdfViewer } from "./lib/viewer.js";
 import { checkOutline, readPageText, setDataFetch } from "./lib/evidence.js";
 import { readPageLines, figureColumn, namesFromPage } from "./lib/pagelines.js";
 import { el, svg } from "./lib/dom.js";
+import {
+  emptyPermitsState, readPermitsState, permitsParams, permitsKey, permitsToolbar, syncPermitsToolbar, renderPermits,
+} from "./lib/apr-view.js";
+import { renderFunds } from "./lib/funds-view.js";
+import { renderSchedules, SELECTION_KEYS as SCHEDULE_KEYS } from "./lib/schedules-view.js";
 
 // ============================================================ CONFIG
 
@@ -34,7 +39,7 @@ const DEFAULT_BRANCH = "main";
 // files, /releases/download/<tag>/<name> its release assets, and /ref answers
 // the commit at main.
 const DATA_ROOT = "https://mfa-data.amyc.us/";
-const VIEWS = ["entities", "fees", "sources", "figures", "coverage", "stats"];
+const VIEWS = ["entities", "fees", "sources", "figures", "funds", "schedules", "permits", "coverage", "stats"];
 const DEFAULT_VIEW = "entities";
 const PAGE_SIZES = [50, 100, 250, 500];
 const DEFAULT_SORT = { col: "fy", dir: "desc" };
@@ -304,6 +309,9 @@ const state = {
   cyr: "", ccls: "", ctype: "", ccounty: "", cq: "", cstat: "",
   csort: { col: "name", dir: "asc" },
   cpage: 1,
+  fa: "", faq: "",
+  sc: Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, ""])),
+  permits: emptyPermitsState(),
   figure: "",
   doc: "",
   tab: "outlined",
@@ -334,6 +342,8 @@ function parseSort(raw, def, allowed) {
 const ENTITY_SORTS = ["name", "type", "county", "years", "figures", "fees", "sources", "sum"];
 const FEE_SORTS = ["entity", "fee", "category", "years", "last", "figures", "sum"];
 const SOURCE_SORTS = ["agency", "title", "type", "fy", "pages", "bytes", "figures"];
+// The Schedules tab's defaults (lib/schedules-view.js), left out of the URL.
+const SCHEDULE_DEFAULTS = { sort: "agency", dir: "asc", page: "1" };
 
 function readState() {
   const p = new URLSearchParams(location.search);
@@ -382,6 +392,11 @@ function readState() {
   state.cstat = COVERAGE_STATUSES.some(([k]) => k && k === p.get("cstat")) ? p.get("cstat") : "";
   state.csort = parseSort(p.get("csort"), DEFAULT_COVERAGE_SORT, COVERAGE_SORTS);
   state.cpage = Math.max(1, Number.parseInt(p.get("cpage"), 10) || 1);
+  state.fa = p.get("fa") || "";
+  state.faq = p.get("faq") || "";
+  state.sc = Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, p.get(`sc${k}`) || ""]));
+  // In place: the Permits toolbar keeps a reference to this object.
+  Object.assign(state.permits, readPermitsState(p));
   state.figure = p.get("f") || "";
   state.doc = state.figure ? "" : p.get("doc") || "";
   state.tab = p.get("tab") === "original" ? "original" : "outlined";
@@ -422,6 +437,16 @@ function stateParams({ pinRef = false } = {}) {
     put("cyr", state.cyr); put("ccls", state.ccls); put("ctype", state.ctype); put("ccounty", state.ccounty); put("cq", state.cq); put("cstat", state.cstat);
     put("csort", sortParam(state.csort, DEFAULT_COVERAGE_SORT));
     if (state.cpage > 1) p.set("cpage", state.cpage);
+  } else if (state.view === "funds") {
+    if (state.fa) put("fa", state.fa);
+    else put("faq", state.faq);
+  } else if (state.view === "schedules") {
+    for (const k of SCHEDULE_KEYS) {
+      const v = String(state.sc[k] ?? "");
+      if (v !== SCHEDULE_DEFAULTS[k]) put(`sc${k}`, v);
+    }
+  } else if (state.view === "permits") {
+    permitsParams(state.permits, put);
   }
   if (state.figure) {
     p.set("f", state.figure);
@@ -592,6 +617,11 @@ function updateTitle() {
   else if (state.view === "fees" && currentFee()) t = `${currentFee().label} · ${state.entity} · ${base}`;
   else if (state.view === "fees") t = `Fees · ${base}`;
   else if (state.view === "sources") t = `Sources · ${base}`;
+  else if (state.view === "funds" && state.fa) t = `${state.fa} · Funds · ${base}`;
+  else if (state.view === "funds") t = `Funds · ${base}`;
+  else if (state.view === "schedules" && state.sc.agency) t = `${state.sc.agency} · Schedules · ${base}`;
+  else if (state.view === "schedules") t = `Schedules · ${base}`;
+  else if (state.view === "permits") t = `Permits · ${base}`;
   else if (state.view === "coverage") t = `Coverage · ${base}`;
   else if (state.view === "stats") t = `Stats · ${base}`;
   document.title = t;
@@ -663,7 +693,8 @@ function renderToolbar() {
   }
   toolbarView = key;
   bar.replaceChildren();
-  bar.hidden = key === "stats" || key === "dossier";
+  // Funds and Schedules draw their own controls above their tables.
+  bar.hidden = key === "stats" || key === "dossier" || key === "funds" || key === "schedules";
   if (key === "figures") {
     const f = state.filters;
     const years = model.years;
@@ -729,6 +760,8 @@ function renderToolbar() {
       copyButton("Copy link", () => new URL(urlFor(), location.href).href),
       coverageYearsToggle(),
     );
+  } else if (key === "permits") {
+    bar.append(...permitsToolbar(permitsCtx()));
   }
 }
 
@@ -743,6 +776,7 @@ function syncToolbar() {
   set("fq", state.fq); set("fcat", state.fcat); set("ftype", state.ftype); set("fcounty", state.fcounty);
   for (const b of document.querySelectorAll(".cov-years-toggle [data-cyr]")) b.setAttribute("aria-pressed", b.dataset.cyr === state.cyr ? "true" : "false");
   set("ccls", state.ccls); set("ctype", state.ctype); set("ccounty", state.ccounty); set("cq", state.cq); set("cstat", state.cstat);
+  syncPermitsToolbar(state);
 }
 
 function clearFilters() {
@@ -970,7 +1004,8 @@ function renderAll() {
   const ck = JSON.stringify([state.view, state.filters, state.sort, state.page, state.pageSize, state.entity,
     state.eq, state.etype, state.ecounty, state.esort, state.sq, state.sentity, state.ssort,
     state.fee, state.fq, state.fcat, state.ftype, state.fcounty, state.fentity, state.fsort,
-    state.cyr, state.ccls, state.ctype, state.ccounty, state.cq, state.cstat, state.csort, state.cpage]);
+    state.cyr, state.ccls, state.ctype, state.ccounty, state.cq, state.cstat, state.csort, state.cpage,
+    state.fa, state.sc, permitsKey(state.permits)]);
   if (ck !== contentKey) {
     contentKey = ck;
     renderContent();
@@ -990,6 +1025,9 @@ function renderContent() {
     if (state.fee) renderFeePage(content);
     else renderFees(content);
   } else if (state.view === "sources") renderSources(content);
+  else if (state.view === "funds") renderFundsTab(content);
+  else if (state.view === "schedules") renderSchedulesTab(content);
+  else if (state.view === "permits") renderPermits(content, permitsCtx());
   else if (state.view === "coverage") renderCoverage(content);
   else renderStatsView(content);
 }
@@ -2397,6 +2435,60 @@ function fillCoverage(view, d) {
   );
 }
 
+// ------------------------------------------------------------ FUNDS, SCHEDULES, PERMITS
+// Each tab is its own module (lib/funds-view.js, lib/schedules-view.js,
+// lib/apr-view.js), which loads its file the first time it opens and takes
+// the app functions it uses from these ctx objects.
+
+// Redraws the content once a tab's file has loaded or its selection changed.
+function rerenderContent() {
+  contentKey = "";
+  update();
+}
+
+function renderFundsTab(content) {
+  renderFunds(content, {
+    fetchText, dataUrl, officialUrl,
+    collections: model.rows,
+    entityLink: (name) => entityFilterLink(name),
+    agencyHref: (name) => hrefWith({ view: "funds", fa: name }),
+    agency: state.fa,
+    q: state.faq,
+    isCurrent: () => state.view === "funds",
+    rerender: rerenderContent,
+    // The search filters the list in place; only the address bar follows it.
+    onSelect: ({ agency, q }) => {
+      const push = agency !== state.fa;
+      state.fa = agency;
+      state.faq = q;
+      writeUrl(push);
+    },
+  });
+}
+
+function renderSchedulesTab(content) {
+  renderSchedules(content, {
+    fetchText, officialUrl, openDoc,
+    sourceById: model.sourceById,
+    agencyHref: (name) => hrefWith({ view: "schedules", scagency: name }),
+    selection: state.sc,
+    isCurrent: () => state.view === "schedules",
+    rerender: rerenderContent,
+    onSelect: (s) => {
+      const push = s.agency !== state.sc.agency;
+      state.sc = Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, String(s[k] ?? "")]));
+      writeUrl(push);
+    },
+  });
+}
+
+function permitsCtx() {
+  return {
+    model, state, update, loadCoverage, showTooltip, hideTooltip, entityHref, openEntity,
+    sortHeader, toggleSort, tile, chip, select, searchInput,
+  };
+}
+
 // ============================================================ PANEL
 
 function openFigure(id, { list, tab = "outlined", push = true } = {}) {
@@ -2820,6 +2912,8 @@ function wire() {
       state.view = a.dataset.view;
       state.entity = "";
       state.fee = "";
+      state.fa = "";
+      state.sc.agency = "";
       state.figure = "";
       state.doc = "";
       update({ push: true });
