@@ -29,7 +29,7 @@ The release claims that every figure was read from the original report, outlined
 - **Figures.** Each row is one printed figure. Filter and search it (the search also covers caveats), sort it, and export it. A jurisdiction's name filters the table to it; clicked again, it opens the jurisdiction's page. Opening a row shows the outlined evidence page, scrolled to the figure. One click then opens the complete original report at that page, with the figure boxed and the other published figures on the page marked; **Go to document** opens that report with every figure published from it listed.
 - **Funds.** Each agency's impact fee accounts by fund and fiscal year, from the release's `data/fee-account-figures.csv`: the balances and flows its report prints, primary figures only, each linked to its page. **Check** adds the flows in the release to the beginning balance and compares the result with the printed ending balance; it is incomplete while a flow is not in the release. The tab opens on the ending balances summed by fiscal year (funds of one agency and year with matching balances from the same report count once) and a list of agencies to search.
 - **Schedules.** The fee rates each agency prints for new development, one row per printed cell, from the release's `data/fee-schedules.csv`; until the release carries that file, the tab says so and shows nothing else. Rates are shown as printed and never added up. Filter by agency, fee type, basis, purpose and status, and open the page each rate was read from.
-- **Permits.** The housing units each city and county permitted by fiscal year, from Table A2 of the Housing Element Annual Progress Reports that HCD publishes, beside the fees the release reports the agency collected that year, and fees per unit for a year with both of its reports in hand and fees under one release name. A scatter of units against fees sits above a table to sort and page. Its data is `apr/apr.json` (see [Permits data](#permits-data)).
+- **Permits.** The housing units each city and county permitted by fiscal year, from Table A2 of the Housing Element Annual Progress Reports that HCD publishes, beside the fees the release reports the agency collected that year, and fees per unit for a year with both of its reports in hand and fees under one release name. Each year also shows the jurisdiction's population (the Department of Finance estimate; for a county, its unincorporated area), units per 1,000 residents and fees per resident. The tiles give the median fees per unit with every agency year counted once and weighted by population. A scatter of units against fees, or of units per 1,000 residents against fees per resident, sits above a table to sort and page. Its data is `apr/apr.json` and `apr/population.json` (see [Permits data](#permits-data)).
 - **Stats.** Figures by fiscal year, fee category, jurisdiction type and land use, each linking to the figures it counts; the cohort accounting, refusals by reason, row counts for each data table, and links to the method documents. The site offers no bulk downloads.
 
 Every view is in the URL, so any figure, filter or page is a link. **Cite** copies a citation with a link pinned to the release commit.
@@ -64,7 +64,7 @@ URL parameters:
 | `sq`, `sentity`, `ssort` | sources filters |
 | `fa=<agency>`, `faq` | funds: open that agency's accounts, or (without `fa`) search the agency list |
 | `scagency`, `scq`, `sctype`, `scbasis`, `scpurpose`, `scstatus`, `scsort`, `scdir`, `scpage` | schedules filters (`scagency` opens one agency's rates) |
-| `pq`, `ptype`, `pcounty`, `pfy`, `pshow`, `psort`, `ppage` | permits filters (`ptype` is `city`, `county` or `city_and_county`; without `pshow` the table lists years with units and fees, `comparable` years with fees per unit, `all` every year; `psort` is a column and direction, as `perUnit.desc`) |
+| `pq`, `ptype`, `pcounty`, `pfy`, `pshow`, `pchart`, `psort`, `ppage` | permits filters (`ptype` is `city`, `county` or `city_and_county`; without `pshow` the table lists years with units and fees, `comparable` years with fees per unit, `all` every year; `pchart=capita` draws the scatter per resident; `psort` is a column and direction, as `perUnit.desc`, and the population columns sort as `pop`, `unitsPer1k` and `feesPerRes`) |
 | `cyr=all`, `ccls`, `ctype`, `ccounty`, `cq`, `cstat`, `csort`, `cpage` | coverage filters (`cyr=all` counts every fiscal year instead of FY 2022-23 on, as the toggle at the top right of the tab does, and the browser remembers that toggle; `ccls` is `municipal`, `school` or `special`; `cstat` is `none`, `gaps`, `waiting` or `done`) |
 
 The figures filter boxes (`entity`, `cat`, `law`, `area`, `type`, `county`, `scope`) each take several values joined with `|`, as `cat=water/supply|water/stormwater`. Values in one box match any of them; separate boxes must all match. `__none` picks rows with no value. A `cat` value is a namespace (`water`), a subcategory (`water/wastewater`), or a namespace with a trailing slash (`water/`) for its rows with no subcategory; an older link's release `fee_category` code (`cat=sewer`) still opens as its namespace and subcategory. The taxonomy is in `lib/taxonomy.js`: the law a fee is charged under (`law`), what it pays for (`cat`), and whether it applies to the whole agency or only part of it (`area`). A row takes the release's `fee_law`, `fee_namespace`, `fee_subcategory`, `geographic_scope` and `area_name` where its reviewers have recorded them; until then its category is read from `fee_category` (or, marked as placed from the fee name, from the fee name), and its law and area show as not yet classified.
@@ -89,6 +89,20 @@ node scripts/apr.mjs [tablea2.csv] [out.json] [--coverage coverage.json] [--upda
 
 The file holds counts only: for each jurisdiction and fiscal year, the units and records given building permits (split by deed restriction and by unit category), entitlements and certificates of occupancy, and the report years each jurisdiction filed. No addresses, APNs, tracking IDs, project names or coordinates leave the script. It records the source file's size, SHA-256 and MD5, and the portal's last modified date when the portal's MD5 and size match the file (checked live unless `--offline`). The rules for repeats across reports and for matching names are in the script's header and `lib/apr.js`; the tab prints the rule and the source. Rerun it and commit the file to refresh the tab.
 
+Population is `apr/population.json`. `scripts/population.mjs` writes it from the California Department of Finance E-4 population estimates for cities, counties and the state: the report for 2011 to 2020 (2010 census benchmark) for January 1, 2018 to 2020, and the report for 2021 to 2026 (2020 census benchmark) for January 1, 2021 on. Download both workbooks from their pages on dof.ca.gov (the script's `SOURCES` and the file list the URLs), then run it after `scripts/apr.mjs`, since it covers the fiscal years `apr/apr.json` has:
+
+```sh
+node scripts/population.mjs <E-4 2011-2020.xlsx> <E-4 2021-2026.xlsx> [out.json] [--apr apr.json] [--offline]
+```
+
+It reads each workbook's "Table 2 City County" sheet and records each file's URL, size and SHA-256, the title and release date its "About the Data" sheet prints, and the server's last modified date when a live request answers with the same size (unless `--offline`). The rules, in the script's header and `lib/population.js`, and printed on the tab:
+
+- A fiscal year takes the January 1 estimate inside it: FY 2019-20 takes January 1, 2020.
+- A city takes its own row. A county takes its unincorporated area (DOF's balance of county, or the county total where it has no cities), since its APR covers that area. San Francisco takes the city and county.
+- DOF names are matched to APR jurisdictions within their county the way `lib/apr.js` matches the roster, with `DOF_ALIASES` for four spellings. The file lists every APR jurisdiction left without population (none at present) and every DOF row no jurisdiction took.
+- A year with no estimate is null: missing, never zero. No population floor applies.
+- The weighted median counts each agency year with fees per unit by its residents: half the residents counted live in agency years at or below it, and an exact half split takes the midpoint of the two values. Units per 1,000 residents and fees per resident in the tiles divide all units (years fully reported only), or all fees, by all residents of the agency years counted.
+
 ## Run it locally
 
 Check out `aimesy/mfa-data` next to this repository (or point `MFA_DATA_ROOT` at a checkout), then:
@@ -107,7 +121,7 @@ node tests/worker.test.mjs    # data Worker: path allowlist, origin check, rate 
 node tests/seo.test.mjs       # static pages for search engines
 node tests/funds.test.mjs     # Funds tab: fund accounts, the balance check, twins
 node tests/schedules.test.mjs # Schedules tab: reader, filters, sort (plus the pilot file with MFA_SCHEDULES_CSV)
-node tests/apr.test.mjs       # Permits tab: dedupe, name matching, the join to fees (plus apr/apr.json)
+node tests/apr.test.mjs       # Permits tab: dedupe, name matching, the join to fees, population and its weighting (plus apr/apr.json and apr/population.json)
 node tests/smoke.mjs          # Chromium via Playwright against the local release
 ```
 

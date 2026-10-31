@@ -813,6 +813,7 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .permits-view .pt.alt { fill: none; stroke: var(--ink-3); stroke-width: 1.25; }
 .permits-view .pt.on { stroke: var(--ink); stroke-width: 2; }
 .permits-view .median { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; fill: none; }
+.permits-view .median.weighted { stroke: var(--ink); stroke-width: 1.25; stroke-dasharray: 10 3 2 3; }
 .permits-view .axis-title { fill: var(--ink-2); font-family: var(--font-sans); font-size: 11px; }
 .permits-view .permits-live {
   position: absolute;
