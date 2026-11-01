@@ -400,7 +400,7 @@ try {
   // the table opens its jurisdiction.
   await page.goto(`${base}&view=permits`);
   await page.waitForSelector(".permits-chart .hit");
-  assert.ok(await page.locator(".permits-chart .pt").count() > 1, "the chart plots more than one agency year");
+  assert.ok(await page.locator(".permits-chart .pt").count() > 1, "the chart plots more than one jurisdiction");
   await page.focus(".permits-chart .hit");
   await page.waitForSelector(".permits-chart .pt.on");
   const firstPoint = await textOf(page, ".permits-live");
@@ -411,9 +411,10 @@ try {
   await page.keyboard.press("ArrowLeft");
   await page.waitForFunction((t) => document.querySelector(".permits-live")?.textContent === t, firstPoint);
   await shot(page, "07c-permits");
-  // The chart is per resident, and its off-chart counts filter the table.
-  assert.match(await page.locator(".permits-chart").getAttribute("aria-label"), /per 1,000 residents against fees collected per resident/);
-  assert.match(firstPoint, /units per 1,000 residents, fees \$[\d,.]+ per resident/);
+  // The chart is fees per unit by jurisdiction, and its off-chart counts filter
+  // the table.
+  assert.match(await page.locator(".permits-chart").getAttribute("aria-label"), /per 1,000 residents against fees collected per unit for [\d,]+ jurisdictions/);
+  assert.match(firstPoint, /\$[\d,]+ per unit, [\d,.]+ units a year per 1,000 residents/);
   const offCount = page.locator(".permits-off-note .link-btn").first();
   const offLabel = await offCount.textContent();
   const offKey = await offCount.getAttribute("data-off");

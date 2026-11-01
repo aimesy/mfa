@@ -17,7 +17,7 @@ import {
   dedupeActivity, fyCoverage, normName, rosterKeys, rosterIndex, matchJurisdiction, APR_ALIASES, releaseKey, releaseIndex,
   releaseNamesFor, feeYear, agencyFees, readApr, titleCase, joinPermits, median,
 } from "../lib/apr.js";
-import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, DEFAULT_PERMITS_SORT, OFF_CHART } from "../lib/apr-view.js";
+import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, chartPoints, DEFAULT_PERMITS_SORT, OFF_CHART } from "../lib/apr-view.js";
 import {
   headingDate, fyEstimateDate, estimateFy, aprPopKey, dofPlaceKey, readE4Table2, mergeE4, matchPopulation,
   readPopulation, addPopulation, weightedMedian, pooled,
@@ -528,9 +528,45 @@ const balanced = (stats) => assert.equal(stats.dated,
   assert.deepEqual(kinds({ units: 3, fees: 0, pop: 100 }), ["nofees"]);
   assert.deepEqual(kinds({ units: 3, fees: -4, pop: 100 }), ["nofees"]);
   assert.deepEqual(kinds({ units: 3, fees: 500, pop: null }), ["nopop"]);
-  assert.deepEqual(kinds({ units: 3, fees: 500, pop: 100 }), []);
+  assert.deepEqual(kinds({ units: 3, fees: 500, pop: 100 }), ["noperunit"], "a year not full, or with fees under two names");
+  assert.deepEqual(kinds({ units: 3, fees: 500, pop: 100, perUnit: 500 / 3 }), []);
   assert.deepEqual(kinds({ units: null, fees: 500, pop: 100 }), [], "missing units are not no units");
   assert.deepEqual(kinds({ units: 0, fees: null, pop: 100 }), [], "missing fees are not fees");
+
+  // One dot for each jurisdiction: its years with fees per unit combined, all
+  // fees over all units, not the mean of each year's fees per unit.
+  const yr = (juris, aprCounty, fy, units, fees, pop, cov = "full") => ({
+    juris, aprCounty, name: `${juris} (${fy})`, entity: juris, fy, units, fees, pop, cov, dr: 1, cats: [units],
+    perUnit: cov === "full" && units > 0 ? fees / units : null,
+  });
+  const years = [
+    yr("A", "Napa", "2020-21", 30, 30000, 3000),
+    yr("A", "Napa", "2019-20", 10, 50000, 1000),
+    yr("A", "Napa", "2021-22", 7, 900, 1000, "partial"),
+    yr("A", "Napa", "2022-23", 7, 0, 1000),
+    yr("A", "Napa", "2023-24", 7, -5, 1000),
+    yr("A", "Napa", "2024-25", 7, 900, null),
+    yr("A", "Yolo", "2019-20", 2, 500, 100),
+    yr("B", "Napa", "2019-20", 0, 900, 100),
+  ];
+  const points = chartPoints(years);
+  assert.equal(points.length, 2, "a name in another county is another jurisdiction; a year with no units is no dot");
+  const [napa, yolo] = points;
+  assert.deepEqual(napa.fys, ["2019-20", "2020-21"], "the years a dot combines, in order");
+  assert.equal(napa.fees, 80000);
+  assert.equal(napa.units, 40);
+  assert.equal(napa.perUnit, 2000);
+  assert.equal(napa.unitsPer1k, 10, "40 units over 4,000 resident years");
+  assert.equal(napa.pop, 2000);
+  assert.equal(napa.dr, 2);
+  assert.equal(napa.cats[0], 40);
+  assert.equal(napa.name, "A (2020-21)", "the latest year's name");
+  assert.deepEqual([yolo.perUnit, yolo.unitsPer1k, yolo.pop], [250, 20, 100], "one year is that year");
+  assert.deepEqual(chartPoints([]), []);
+  // Every year with units and fees is in a dot or in exactly one count.
+  for (const y of years) {
+    assert.equal(kinds(y).length, y.perUnit > 0 && y.pop > 0 ? 0 : 1, `${y.juris} ${y.fy}`);
+  }
 
   const r = (name, fy, units, perUnit = null) => ({ name, fy, units, perUnit, cov: "full" });
   const list = [r("B", "2019-20", 5), r("A", "2020-21", null), r("A", "2019-20", 9, 10), r("C", "2019-20", 0, 3)];
