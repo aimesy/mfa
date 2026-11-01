@@ -17,7 +17,7 @@ import {
   dedupeActivity, fyCoverage, normName, rosterKeys, rosterIndex, matchJurisdiction, APR_ALIASES, releaseKey, releaseIndex,
   releaseNamesFor, feeYear, agencyFees, readApr, titleCase, joinPermits, median,
 } from "../lib/apr.js";
-import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, DEFAULT_PERMITS_SORT } from "../lib/apr-view.js";
+import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, DEFAULT_PERMITS_SORT, OFF_CHART } from "../lib/apr-view.js";
 import {
   headingDate, fyEstimateDate, estimateFy, aprPopKey, dofPlaceKey, readE4Table2, mergeE4, matchPopulation,
   readPopulation, addPopulation, weightedMedian, pooled,
@@ -502,24 +502,35 @@ const balanced = (stats) => assert.equal(stats.dated,
 
 // The Permits tab's URL state and sort.
 {
-  const ps = readPermitsState(new URLSearchParams("pq=san&ptype=county&pcounty=Napa&pfy=2019-20&pshow=all&pchart=capita&psort=perUnit.desc&ppage=3"));
-  assert.deepEqual(ps, { q: "san", type: "county", county: "Napa", fy: "2019-20", show: "all", chart: "capita", sort: { col: "perUnit", dir: "desc" }, page: 3 });
-  const bad = readPermitsState(new URLSearchParams("ptype=district&pfy=2019&pshow=x&pchart=x&psort=bogus.desc&ppage=-2"));
+  const ps = readPermitsState(new URLSearchParams("pq=san&ptype=county&pcounty=Napa&pfy=2019-20&pshow=all&poff=nounits&psort=perUnit.desc&ppage=3"));
+  assert.deepEqual(ps, { q: "san", type: "county", county: "Napa", fy: "2019-20", show: "all", off: "nounits", sort: { col: "perUnit", dir: "desc" }, page: 3 });
+  const bad = readPermitsState(new URLSearchParams("ptype=district&pfy=2019&pshow=x&poff=x&psort=bogus.desc&ppage=-2"));
   assert.deepEqual(bad, emptyPermitsState());
+  assert.deepEqual(readPermitsState(new URLSearchParams("pchart=capita")), emptyPermitsState(), "an old chart link opens the one chart");
   const out = {};
   const put = (k, v) => { if (v) out[k] = v; };
   permitsParams(ps, put);
-  assert.deepEqual(out, { pq: "san", ptype: "county", pcounty: "Napa", pfy: "2019-20", pshow: "all", pchart: "capita", psort: "perUnit.desc", ppage: "3" });
+  assert.deepEqual(out, { pq: "san", ptype: "county", pcounty: "Napa", pfy: "2019-20", pshow: "all", poff: "nounits", psort: "perUnit.desc", ppage: "3" });
   const none = {};
   permitsParams(emptyPermitsState(), (k, v) => { if (v) none[k] = v; });
   assert.deepEqual(none, {}, "the default state writes no parameters");
   assert.deepEqual(DEFAULT_PERMITS_SORT, { col: "name", dir: "asc" });
   assert.equal(permitsKey(ps).length, 9);
-  assert.notDeepEqual(permitsKey(ps), permitsKey({ ...ps, chart: "" }), "the chart is part of the key");
+  assert.notDeepEqual(permitsKey(ps), permitsKey({ ...ps, off: "" }), "the off chart filter is part of the key");
   assert.deepEqual(permitsKey(undefined), []);
   for (const col of ["pop", "unitsPer1k", "feesPerRes"]) {
     assert.deepEqual(readPermitsState(new URLSearchParams(`psort=${col}.desc`)).sort, { col, dir: "desc" }, `sort by ${col}`);
   }
+
+  // Each kind of agency year off the chart, and nothing the chart plots.
+  const kinds = (o) => Object.keys(OFF_CHART).filter((k) => OFF_CHART[k].test(o));
+  assert.deepEqual(kinds({ units: 0, fees: 500, pop: 100 }), ["nounits"]);
+  assert.deepEqual(kinds({ units: 3, fees: 0, pop: 100 }), ["nofees"]);
+  assert.deepEqual(kinds({ units: 3, fees: -4, pop: 100 }), ["nofees"]);
+  assert.deepEqual(kinds({ units: 3, fees: 500, pop: null }), ["nopop"]);
+  assert.deepEqual(kinds({ units: 3, fees: 500, pop: 100 }), []);
+  assert.deepEqual(kinds({ units: null, fees: 500, pop: 100 }), [], "missing units are not no units");
+  assert.deepEqual(kinds({ units: 0, fees: null, pop: 100 }), [], "missing fees are not fees");
 
   const r = (name, fy, units, perUnit = null) => ({ name, fy, units, perUnit, cov: "full" });
   const list = [r("B", "2019-20", 5), r("A", "2020-21", null), r("A", "2019-20", 9, 10), r("C", "2019-20", 0, 3)];

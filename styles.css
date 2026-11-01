@@ -815,6 +815,9 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .permits-view .median { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 4 3; fill: none; }
 .permits-view .median.weighted { stroke: var(--ink); stroke-width: 1.25; stroke-dasharray: 10 3 2 3; }
 .permits-view .axis-title { fill: var(--ink-2); font-family: var(--font-sans); font-size: 11px; }
+/* Holds the hidden readout inside the scrolling pane; loose, it makes the whole document scroll. */
+.permits-view { position: relative; }
+.permits-view .note { overflow-wrap: anywhere; }
 .permits-view .permits-live {
   position: absolute;
   width: 1px;
@@ -828,6 +831,19 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 }
 .permits-view .result-bar, .permits-view .pager { position: static; padding-left: 0; padding-right: 0; background: none; }
 .permits-view #permits-list { scroll-margin-top: 0.5rem; }
+.permits-view .link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.permits-view .link-btn[aria-pressed="true"] { color: var(--ink); font-weight: 600; }
+.permits-view .permits-off { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.6rem; }
 .permits-list .permits-fy { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .permits-list .permits-cov { white-space: nowrap; font-size: 0.72rem; }
 .permits-list .permits-flag { display: block; font-size: 0.66rem; color: var(--ink-3); white-space: normal; }
