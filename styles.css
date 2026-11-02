@@ -421,6 +421,10 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .dossier-meta span + span::before { content: "·"; margin: 0 0.45rem; color: var(--ink-4); }
 .dossier-actions { display: flex; gap: 0.35rem; margin: 0.55rem 0 0.2rem; flex-wrap: wrap; }
 .note { font-size: 0.75rem; color: var(--ink-2); max-width: 92ch; margin: 0.45rem 0; }
+/* No box of its own, so the sticky rules below can travel the width of .content. */
+.dossier-permits { display: contents; }
+.dossier-permits .tiles, .dossier-permits .note, .dossier-permits .muted { position: sticky; left: 0; padding: 0 0.85rem; }
+.dossier-permits .tiles { max-width: 1000px; margin: 0.4rem 0 0.6rem; }
 .section-label {
   position: sticky;
   left: 0;

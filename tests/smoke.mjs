@@ -447,6 +447,10 @@ try {
   await permitLink.click();
   await page.waitForFunction((n) => document.querySelector(".dossier-head h2")?.textContent === n, permitEntity);
   assert.equal(new URL(page.url()).searchParams.get("e"), permitEntity);
+  // Its page shows the agency's permits.
+  await page.waitForSelector(".dossier-permits .tiles .tile");
+  assert.ok(await page.locator(".dossier-permits .permits-list tbody tr").count() > 0, "the page lists the agency's years");
+  assert.doesNotMatch(await page.locator(".dossier-permits").innerText(), /\bnull\b/, "an empty value prints nothing");
   await page.goBack();
   await page.waitForSelector(".permits-chart .hit");
   assert.match(page.url(), /[?&]view=permits/, "back returns to Permits");

@@ -26,7 +26,7 @@ import { checkOutline, readPageText, setDataFetch } from "./lib/evidence.js";
 import { readPageLines, figureColumn, namesFromPage } from "./lib/pagelines.js";
 import { el, svg } from "./lib/dom.js";
 import {
-  emptyPermitsState, readPermitsState, permitsParams, permitsKey, permitsToolbar, syncPermitsToolbar, renderPermits,
+  emptyPermitsState, readPermitsState, permitsParams, permitsKey, permitsToolbar, syncPermitsToolbar, renderPermits, renderEntityPermits,
 } from "./lib/apr-view.js";
 import { renderFunds } from "./lib/funds-view.js";
 import { renderSchedules, SELECTION_KEYS as SCHEDULE_KEYS } from "./lib/schedules-view.js";
@@ -1458,13 +1458,16 @@ function renderEntityDossier(content) {
 
   const sources = [...e.sources].map((id) => model.sourceById.get(id)).filter(Boolean)
     .sort((a, b) => String(a.covers_fiscal_year).localeCompare(String(b.covers_fiscal_year)));
+  const permits = el("section", { class: "dossier-permits" });
 
   content.append(
     head,
     el("div", { class: "table-scroll" }, el("table", { class: "grid matrix" }, thead, tbody, tfoot)),
+    permits,
     el("h3", { class: "section-label", text: `Reports (${sources.length})` }),
     sourcesTable(sources, { compact: true }),
   );
+  renderEntityPermits(permits, e, permitsCtx());
 }
 
 // ------------------------------------------------------------ FEES
@@ -2485,6 +2488,8 @@ function renderSchedulesTab(content) {
 function permitsCtx() {
   return {
     model, state, update, loadCoverage, showTooltip, hideTooltip, entityHref, openEntity,
+    permitsHref: () => hrefWith({ view: "permits" }),
+    openPermits: () => openView("permits"),
     sortHeader, toggleSort, tile, chip, select, searchInput,
   };
 }
@@ -2901,6 +2906,18 @@ function exportCsv() {
 
 // ============================================================ WIRING
 
+function openView(view) {
+  state.view = view;
+  state.entity = "";
+  state.fee = "";
+  state.fa = "";
+  state.sc.agency = "";
+  state.figure = "";
+  state.doc = "";
+  update({ push: true });
+  scrollContentTop();
+}
+
 function wire() {
   $("loading-retry").addEventListener("click", () => boot());
   $("export-btn").addEventListener("click", exportCsv);
@@ -2909,15 +2926,7 @@ function wire() {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
       e.preventDefault();
       if (!model) return;
-      state.view = a.dataset.view;
-      state.entity = "";
-      state.fee = "";
-      state.fa = "";
-      state.sc.agency = "";
-      state.figure = "";
-      state.doc = "";
-      update({ push: true });
-      scrollContentTop();
+      openView(a.dataset.view);
     });
   }
   window.addEventListener("popstate", () => {

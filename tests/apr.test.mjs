@@ -17,7 +17,7 @@ import {
   dedupeActivity, fyCoverage, normName, rosterKeys, rosterIndex, matchJurisdiction, APR_ALIASES, releaseKey, releaseIndex,
   releaseNamesFor, feeYear, agencyFees, readApr, titleCase, joinPermits, median,
 } from "../lib/apr.js";
-import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, chartPoints, DEFAULT_PERMITS_SORT, OFF_CHART } from "../lib/apr-view.js";
+import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, chartPoints, entityPermitRows, renderEntityPermits, DEFAULT_PERMITS_SORT, OFF_CHART } from "../lib/apr-view.js";
 import {
   headingDate, fyEstimateDate, estimateFy, aprPopKey, dofPlaceKey, readE4Table2, mergeE4, matchPopulation,
   readPopulation, addPopulation, weightedMedian, pooled,
@@ -393,6 +393,14 @@ const balanced = (stats) => assert.equal(stats.dated,
   const a = get(0, "2019-20");
   assert.equal(a.name, "Alpha city");
   assert.equal(a.entity, "City of Alpha", "the release name with the most figures opens the agency");
+  // A jurisdiction's page: every release name finds the same years, oldest first.
+  assert.deepEqual(entityPermitRows(rows, "Alpha city").map((r) => [r.j, r.fy]), [[0, "2018-19"], [0, "2019-20"], [0, "2020-21"]]);
+  assert.deepEqual(entityPermitRows(rows, "City of Alpha"), entityPermitRows(rows, "Alpha city"));
+  assert.deepEqual(entityPermitRows(rows, "Beta Public Financing Authority"), entityPermitRows(rows, "City of Beta"));
+  assert.ok(entityPermitRows(rows, "City of Beta").length && entityPermitRows(rows, "City of Beta").every((r) => r.j === 1), "another agency's name finds only its own years");
+  assert.deepEqual(entityPermitRows(rows, "Nowhere"), []);
+  // A district's page loads nothing: with no box or ctx, it would throw if it tried.
+  renderEntityPermits(null, { name: "Beta Public Financing Authority", type: "jpa" }, null);
   assert.deepEqual([a.units, a.records, a.dr, a.ndr, a.ent, a.co], [10, 4, 2, 8, 3, 5]);
   assert.deepEqual(a.cats, [6, 0, 0, 0, 4, 0]);
   assert.equal(a.fees, 50000);
