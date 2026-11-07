@@ -853,6 +853,93 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .permits-list .permits-cov { white-space: nowrap; font-size: 0.72rem; }
 .permits-list .permits-flag { display: block; font-size: 0.66rem; color: var(--ink-3); white-space: normal; }
 
+/* ------------------------------------------------------------ districts */
+
+/* The overlap caveat: a short summary that opens to the whole text, in a
+   result bar or a page's district lines. */
+.district-caveat { display: inline-block; color: var(--warn-ink); }
+.district-caveat summary { display: inline; cursor: pointer; list-style: none; border-bottom: 1px dotted var(--warn-border); }
+.district-caveat summary::-webkit-details-marker { display: none; }
+.district-caveat summary::after { content: " ▸"; }
+.district-caveat[open] summary::after { content: " ▾"; }
+.district-caveat[open] { flex-basis: 100%; }
+.district-caveat-body { display: block; max-width: 70ch; margin-top: 0.3rem; padding: 0.35rem 0.55rem; border-left: 3px solid var(--warn-border); background: var(--warn-bg); font-family: var(--font-sans); line-height: 1.45; white-space: normal; }
+.district-elsewhere { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.7rem; max-width: 70rem; margin: 0 0 0.8rem; padding: 0.45rem 0.8rem; border: 1px solid var(--warn-border); border-left-width: 3px; border-radius: 2px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.76rem; }
+.dossier-districts { margin: 0.35rem 0 0.15rem; font-size: 0.74rem; color: var(--ink-2); }
+.dossier-districts p, .dossier-districts .district-basis { margin: 0.1rem 0; }
+.dossier-districts .dl-chamber { font-weight: 600; color: var(--ink); }
+.dossier-districts .district-basis { font-size: 0.7rem; }
+.edge-badge { color: var(--ink-3); font-style: italic; }
+td .edge-badge { margin-left: 0.35rem; padding: 0 0.3rem; border: 1px solid var(--rule); border-radius: 2px; font-family: var(--font-mono); font-size: 0.62rem; font-style: normal; }
+.chamber-switch { display: inline-flex; }
+.chamber-switch .btn { border-radius: 0; }
+.chamber-switch .btn:first-child { border-radius: 2px 0 0 2px; }
+.chamber-switch .btn:last-child { border-radius: 0 2px 2px 0; margin-left: -1px; }
+.chamber-switch .btn[aria-pressed="true"] { position: relative; background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.districts-view { padding: 0.8rem 0.85rem 1.5rem; }
+.districts-view .result-bar { position: static; padding-left: 0; padding-right: 0; background: none; }
+.districts-view .dossier-head { position: static; padding: 0 0 0.3rem; max-width: none; }
+.district-callout { max-width: 70rem; margin: 0 0 0.8rem; padding: 0.55rem 0.8rem; border: 1px solid var(--warn-border); border-left-width: 3px; border-radius: 2px; background: var(--warn-bg); color: var(--warn-ink); font-size: 0.76rem; }
+.district-callout p { margin: 0 0 0.35rem; }
+.district-callout p:last-child { margin-bottom: 0; }
+.district-callout .muted, .district-callout details p { color: var(--ink-2); }
+.district-callout summary { cursor: pointer; }
+.districts-grid .col-counties { min-width: 12rem; max-width: 26rem; white-space: normal; }
+/* Eight long headings on one line pushed the sum column off a 1440px screen. */
+.districts-grid thead th, .districts-grid thead th.num { white-space: normal; vertical-align: bottom; }
+.districts-grid .col-district { white-space: nowrap; }
+.districts-grid .also-names { display: block; margin-top: 0.15rem; font-size: 0.68rem; color: var(--ink-3); white-space: normal; }
+/* On a phone the table scrolls; keep a count heading to two or three lines. */
+.districts-grid thead th.num { min-width: 6.5rem; }
+.district-open { margin: 0.35rem 0 0; font-size: 0.76rem; }
+.district-sum-note { max-width: 70rem; margin: 0.6rem 0 0; font-size: 0.7rem; }
+
+/* ------------------------------------------------------------ downloads */
+
+/* Fixed to the viewport, under the header's Download button. */
+.dl-menu {
+  position: fixed;
+  z-index: 520;
+  min-width: 14rem;
+  max-width: calc(100vw - 16px);
+  padding: 0.3rem;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.dl-item { display: block; width: 100%; padding: 0.4rem 0.55rem; background: none; border: 0; border-radius: 2px; color: var(--ink); text-align: left; white-space: normal; cursor: pointer; }
+.dl-item:hover:not(:disabled), .dl-item:focus-visible { background: var(--paper-2); }
+.dl-item:disabled { color: var(--ink-4); cursor: default; }
+.dl-status { margin: 0; padding: 0.15rem 0.55rem; font-size: 0.68rem; }
+.dl-status:empty { display: none; }
+.report-backdrop { position: fixed; inset: 0; z-index: 600; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, 0.35); }
+.report-dialog {
+  width: min(32rem, 100%);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  font-size: 0.8rem;
+}
+.report-dialog h2 { margin: 0 0 0.4rem; font-family: var(--font-serif); font-size: 1.1rem; }
+.report-dialog > p { margin: 0 0 0.4rem; }
+.rd-tabs { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 0.3rem 0.8rem; margin: 0.6rem 0; padding: 0.5rem 0.7rem; border: 1px solid var(--rule-2); border-radius: 2px; }
+.rd-tabs legend { padding: 0 0.3rem; font-family: var(--font-mono); font-size: 0.68rem; color: var(--ink-3); }
+.rd-tab { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.3rem; cursor: pointer; }
+.rd-cap { margin: 0 0 0.4rem; padding: 0.35rem 0.55rem; border-left: 3px solid var(--warn-border); background: var(--warn-bg); font-size: 0.75rem; }
+.rd-cap[hidden] { display: none; }
+.rd-progress { min-height: 1.2em; margin: 0.3rem 0; font-family: var(--font-mono); font-size: 0.7rem; }
+.rd-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
+.btn.primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.btn.primary:hover:not([disabled]) { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+
 /* ------------------------------------------------------------ narrow screens */
 
 .filters-more { display: contents; }
@@ -903,6 +990,7 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 .fbox-btn { padding: 0; border: 0; background: transparent; font-size: 0.68rem; }
 .fbox-btn:hover { background: transparent; }
 .fbox-btn.active { color: var(--accent); font-weight: 700; }
+.fbox-btn[aria-expanded="true"] { color: var(--accent); text-decoration: underline; }
 .col-head { display: flex; align-items: center; gap: 0.15rem; }
 .col-head .th-btn { flex: 1; min-width: 0; }
 th .col-filter-btn {
@@ -923,14 +1011,21 @@ th .col-filter-btn {
 }
 th .col-filter-btn:hover { background: var(--paper); color: var(--ink); border-color: var(--ink-3); }
 th .col-filter-btn.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+th .col-filter-btn[aria-expanded="true"]:not(.active) { background: var(--paper); color: var(--ink); border-color: var(--ink-3); }
 .figures-grid .col-law { width: 9%; }
 .figures-grid .col-area { width: 8%; }
 .figures-grid td.inferred { font-style: italic; color: var(--ink-2); }
 .figures-grid td.unclassified { color: var(--ink-4); }
+/* Fixed to the viewport: #content scrolls inside the 100dvh shell, so the
+   box is placed from the anchor's rect (lib/filter-box.js placement) and
+   closes when #content scrolls. */
 .col-filter-pop {
   display: none;
-  position: absolute;
+  position: fixed;
   z-index: 500;
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: 2px;
@@ -944,10 +1039,14 @@ th .col-filter-btn.active { background: var(--ink); color: var(--paper); border-
   color: var(--ink);
 }
 .col-filter-pop.open { display: block; }
+.col-filter-pop:focus { outline: none; }
 .col-filter-pop .cf-title { font-weight: 600; color: var(--accent); margin-bottom: 0.4rem; }
+.col-filter-pop .cf-note { margin: -0.15rem 0 0.45rem; color: var(--ink-3); font-size: 0.72rem; line-height: 1.35; text-align: left; }
 .col-filter-pop .cf-sort { display: flex; gap: 0.3rem; margin-bottom: 0.4rem; }
 .col-filter-pop .cf-sort button {
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
   padding: 0.25rem;
   font-size: 0.74rem;
   background: var(--paper-2);
@@ -973,6 +1072,7 @@ th .col-filter-btn.active { background: var(--ink); color: var(--paper); border-
 .col-filter-pop .cf-search:focus { outline: none; border-color: var(--ink-3); }
 .col-filter-pop .cf-list {
   max-height: 300px;
+  box-sizing: border-box;
   overflow-y: auto;
   border: 1px solid var(--rule-2);
   border-radius: 3px;
@@ -991,11 +1091,26 @@ th .col-filter-btn.active { background: var(--ink); color: var(--paper); border-
 .col-filter-pop .cf-row:hover { background: var(--paper-2); }
 .col-filter-pop .cf-row input { margin: 0; flex-shrink: 0; }
 .col-filter-pop .cf-row .cf-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.col-filter-pop .cf-row .cf-count { color: var(--ink-3); font-size: 0.7rem; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.col-filter-pop .cf-row .cf-count { color: var(--ink-3); font-size: 0.7rem; flex-shrink: 0; margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
 .col-filter-pop .cf-row.cf-all { font-weight: 600; border-bottom: 1px solid var(--rule-2); margin-bottom: 0.2rem; padding-bottom: 0.3rem; }
 .col-filter-pop .cf-row.cf-ns { font-weight: 600; }
 .col-filter-pop .cf-row.cf-sub { padding-left: 1.4rem; }
 .col-filter-pop .cf-empty { padding: 0.5rem; text-align: center; color: var(--ink-3); font-style: italic; font-size: 0.74rem; }
+.col-filter-pop .cf-cap { padding: 0.3rem 0.5rem; color: var(--ink-3); font-size: 0.72rem; text-align: left; }
+.col-filter-pop .cf-error { color: var(--warn); font-style: normal; }
+.col-filter-pop .cf-retry {
+  display: block;
+  margin: 0.4rem auto 0;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font: inherit;
+  font-style: normal;
+  cursor: pointer;
+}
+.col-filter-pop .cf-retry:hover { background: var(--paper-3); }
 .col-filter-pop .cf-actions { display: flex; gap: 0.3rem; margin-top: 0.5rem; }
 .col-filter-pop .cf-actions button {
   flex: 1;
@@ -1007,9 +1122,25 @@ th .col-filter-btn.active { background: var(--ink); color: var(--paper); border-
   font-weight: 500;
 }
 .col-filter-pop .cf-apply { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.col-filter-pop .cf-apply:hover { background: var(--accent); }
+.col-filter-pop .cf-apply:not([disabled]):hover { background: var(--accent); }
 .col-filter-pop .cf-apply[disabled] { opacity: 0.45; cursor: default; }
 .col-filter-pop .cf-clear { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-border); }
 .col-filter-pop .cf-clear:hover { background: var(--paper-3); }
 .col-filter-pop .cf-cancel { background: var(--paper-2); color: var(--ink-2); }
 .col-filter-pop .cf-cancel:hover { background: var(--paper-3); }
+/* Touch: 16px text keeps iOS from zooming into the search box, and taller
+   rows and buttons are easier to hit. */
+@media (pointer: coarse) {
+  .col-filter-pop .cf-search { font-size: 16px; }
+  .col-filter-pop .cf-row { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+  .col-filter-pop .cf-sort button,
+  .col-filter-pop .cf-actions button { min-height: 2.25rem; }
+  /* The box triggers and a tag's remove button are at least 32px to a
+     finger; the negative margin keeps a header row from growing, and the gap
+     keeps a tap beside the ▾ off the sort button. */
+  .col-head { gap: 0.5rem; }
+  th .col-filter-btn { width: 32px; height: 32px; margin-block: -7px; }
+  .fbox-btn { min-height: 32px; padding: 0 0.3rem; }
+  .filter-tag button { min-width: 32px; min-height: 32px; }
+  .district-caveat summary { display: inline-block; padding: 0.45rem 0; }
+}

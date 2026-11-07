@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const index = read("./index.html");
@@ -34,7 +35,23 @@ assert.match(index, /data-bug-report-repo="aimesy\/[a-z0-9-]+"/, "bug reporter m
 // Page policy: same-origin scripts plus the theme host and Turnstile; data only from the release Worker.
 const csp = /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(index)?.[1] || "";
 assert.ok(csp, "Content-Security-Policy meta is missing");
-assert.match(csp, /script-src 'self' https:\/\/aimesy\.github\.io https:\/\/challenges\.cloudflare\.com;/, "scripts must be same-origin, the shared theme host or Turnstile");
+assert.match(csp, /script-src 'self' 'sha256-[A-Za-z0-9+/=]+' https:\/\/aimesy\.github\.io https:\/\/challenges\.cloudflare\.com;/, "scripts must be same-origin, the import map, the shared theme host or Turnstile");
+
+// The import map gives every lib module the app.js cache key, so a deploy
+// never pairs a new app.js with a lib file the browser kept; script-src
+// allows exactly its text and no other inline script.
+const appKey = /<script type="module" src="app\.js\?v=([^"]+)"><\/script>/.exec(index)?.[1];
+assert.ok(appKey, "app.js must load with a ?v= cache key");
+assert.ok(index.includes(`href="styles.css?v=${appKey}"`), "styles.css carries the app.js key");
+const maps = [...index.matchAll(/<script type="importmap">([^<]*)<\/script>/g)];
+assert.equal(maps.length, 1, "index.html has one import map");
+assert.ok(index.indexOf('<script type="importmap">') < index.indexOf('<script type="module"'), "the import map comes before the module script");
+const importMap = JSON.parse(maps[0][1]).imports;
+const libFiles = Object.keys(libs).filter((f) => f.endsWith(".js")).sort();
+assert.deepEqual(Object.keys(importMap).sort(), libFiles.map((f) => `./lib/${f}`), "the import map lists every lib module");
+for (const f of libFiles) assert.equal(importMap[`./lib/${f}`], `./lib/${f}?v=${appKey}`, `lib/${f} carries the app.js key`);
+const mapHash = createHash("sha256").update(maps[0][1], "utf8").digest("base64");
+assert.deepEqual([...csp.matchAll(/'sha256-([^']+)'/g)].map((m) => m[1]), [mapHash], "script-src allows the import map's hash and nothing else inline");
 assert.match(csp, /frame-src https:\/\/challenges\.cloudflare\.com;/, "only Turnstile may be framed");
 assert.equal((index.match(/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js\?render=explicit/g) || []).length, 1, "Turnstile loads once, rendered by app.js");
 assert.match(app, /const TURNSTILE_SITEKEY = "0x[0-9A-Za-z_-]+";/, "app.js must name the Turnstile site key");
@@ -72,6 +89,14 @@ const regexOf = (src, name) => new RegExp(`const ${name} = (\\/.+\\/);`).exec(sr
 for (const name of ["RELEASE_PATH", "ASSET_PATH"]) {
   assert.ok(regexOf(app, name), `app.js must define ${name}`);
   assert.equal(regexOf(worker, name), regexOf(app, name), `worker/release.js must allow exactly the ${name} values app.js asks for`);
+}
+// Downloads carry data rows only: no CSV column holds a release document
+// address (the Worker serves the same files), and the Figures CSV drops the
+// release's three document columns.
+assert.match(app, /const DOCUMENT_COLUMNS = new Set\(\["source_pdf", "page_extract_pdf", "outlined_figure_pdf"\]\);/, "app.js must name the release's document columns");
+assert.match(app, /columns\.filter\(\(k\) => !DOCUMENT_COLUMNS\.has\(k\)\)/, "the Figures CSV must leave out the document columns");
+for (const [name, src] of Object.entries({ "app.js": app, ...libs })) {
+  assert.doesNotMatch(src, /key: "[a-z_]*_pdf"/, `${name} must not export a document address column`);
 }
 assert.match(model, /is_primary_in_figure_group === TRUE/, "sums must come from primary rows only");
 assert.match(app, /mx-empty/, "the jurisdiction matrix must mark missing cells as missing");

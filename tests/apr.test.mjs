@@ -17,7 +17,7 @@ import {
   dedupeActivity, fyCoverage, normName, rosterKeys, rosterIndex, matchJurisdiction, APR_ALIASES, releaseKey, releaseIndex,
   releaseNamesFor, feeYear, agencyFees, readApr, titleCase, joinPermits, median,
 } from "../lib/apr.js";
-import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, chartPoints, entityPermitRows, renderEntityPermits, DEFAULT_PERMITS_SORT, OFF_CHART } from "../lib/apr-view.js";
+import { emptyPermitsState, readPermitsState, permitsParams, permitsKey, sortPermitRows, permitsSummary, chartPoints, entityPermitRows, renderEntityPermits, DEFAULT_PERMITS_SORT, OFF_CHART, cleanParts, filterRows, permitAgency } from "../lib/apr-view.js";
 import {
   headingDate, fyEstimateDate, estimateFy, aprPopKey, dofPlaceKey, readE4Table2, mergeE4, matchPopulation,
   readPopulation, addPopulation, weightedMedian, pooled,
@@ -529,6 +529,35 @@ const balanced = (stats) => assert.equal(stats.dated,
   for (const col of ["pop", "unitsPer1k", "feesPerRes"]) {
     assert.deepEqual(readPermitsState(new URLSearchParams(`psort=${col}.desc`)).sort, { col, dir: "desc" }, `sort by ${col}`);
   }
+
+  // Type, County and FY take several values joined by "|"; each part is
+  // checked on its own, repeats go, and an old single value still reads.
+  const multi = readPermitsState(new URLSearchParams("ptype=city|county|district|city&pcounty=Napa| Marin |&pfy=2019-20|2019|2021-22&pshow=comparable"));
+  assert.deepEqual([multi.type, multi.county, multi.fy, multi.show], ["city|county", "Napa|Marin", "2019-20|2021-22", "comparable"]);
+  assert.equal(readPermitsState(new URLSearchParams("ptype=__none")).type, "__none", "(no roster match) is a type");
+  assert.equal(readPermitsState(new URLSearchParams(`pcounty=${"x".repeat(101)}|Napa`)).county, "Napa");
+  assert.equal(cleanParts("a||b|a", () => true), "a|b");
+  assert.equal(cleanParts(null, () => true), "");
+  const back = {};
+  permitsParams(multi, (k, v) => { if (v) back[k] = v; });
+  assert.deepEqual(back, { ptype: "city|county", pcounty: "Napa|Marin", pfy: "2019-20|2021-22", pshow: "comparable" });
+  assert.deepEqual(readPermitsState(new URLSearchParams(new URLSearchParams(back).toString())), multi, "a written link reads back the same");
+  assert.equal(permitsKey(multi).length, 9);
+  assert.notDeepEqual(permitsKey(multi), permitsKey({ ...multi, fy: "2019-20" }), "a narrower FY list is a new key");
+
+  // The boxes filter rows: any ticked value matches, boxes combine, and a
+  // box left out by skip counts against the others.
+  const prow = (over) => ({ type: "city", county: "Napa", fy: "2020-21", _search: "napa city", ...over });
+  const prows = [prow({}), prow({ type: "county", fy: "2021-22", _search: "napa county" }), prow({ type: "", county: "Marin", _search: "sausalito" })];
+  const pick = (f, opts) => filterRows(prows, { ...emptyPermitsState(), ...f }, opts).map((r) => prows.indexOf(r));
+  assert.deepEqual(pick({}), [0, 1, 2]);
+  assert.deepEqual(pick({ type: "city|__none" }), [0, 2]);
+  assert.deepEqual(pick({ type: "county", fy: "2020-21" }), []);
+  assert.deepEqual(pick({ type: "county", fy: "2020-21" }, { skip: "fy" }), [1]);
+  assert.deepEqual(pick({ county: "Napa", q: "county" }), [1]);
+  assert.deepEqual(pick({}, { districts: (r) => r.county === "Marin" }), [2]);
+  assert.deepEqual(permitAgency({ agency: "Napa", type: "city", county: "Napa", juris: "NAPA", aprCounty: "NAPA" }), ["Napa", { type: "city", county: "Napa" }]);
+  assert.deepEqual(permitAgency({ agency: "", juris: "SAUSALITO", aprCounty: "MARIN" }), ["SAUSALITO", { county: "MARIN" }]);
 
   // Each kind of agency year off the chart, and nothing the chart plots.
   const kinds = (o) => Object.keys(OFF_CHART).filter((k) => OFF_CHART[k].test(o));

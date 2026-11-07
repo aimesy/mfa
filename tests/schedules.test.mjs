@@ -12,7 +12,9 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { toCsv } from "../lib/csv.js";
-import { entityTypeLabel, fmtInt } from "../lib/model.js";
+import { entityTypeLabel, fmtInt, NONE } from "../lib/model.js";
+import { facetOptions, boxSummary } from "../lib/filter-box.js";
+import { csvText } from "../lib/export.js";
 import { categoryLabel, categoryParam, NOT_CLASSIFIED } from "../lib/taxonomy.js";
 import {
   SCHEDULES_PATH, SCHEDULE_COLUMNS, FEE_TYPES, PURPOSES, BASES, RATE_STATUSES, LAND_USES, REVIEW_STATUSES,
@@ -112,7 +114,7 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 
 // The view module reads document and Node when it renders, so it is loaded
 // after the stand-in is in place.
-const { renderSchedules, resetSchedules, NOT_PUBLISHED, SELECTION_KEYS } = await import("../lib/schedules-view.js");
+const { renderSchedules, resetSchedules, exportSchedules, NOT_PUBLISHED, SELECTION_KEYS, SELECTION_PARTS } = await import("../lib/schedules-view.js");
 
 // ------------------------------------------------------------ fixtures
 
@@ -282,6 +284,17 @@ const csvOf = (rows, columns = SCHEDULE_COLUMNS) => toCsv(columns, rows);
   assert.deepEqual(ids(filterSchedules(ROWS, { q: "single family" })), ["alpha-p3-001", "gamma-p1-001"]);
   assert.deepEqual(ids(filterSchedules(ROWS, { q: "meter" })), ["beta-p5-001"]);
 
+  // Several values joined by "|": any of them matches, and filters combine.
+  assert.equal(NO_BASIS, NONE);
+  assert.deepEqual(ids(filterSchedules(ROWS, { type: "capacity_charge|school_facilities_fee" })), ["beta-p5-001", "gamma-p1-001"]);
+  assert.deepEqual(ids(filterSchedules(ROWS, { basis: `per_acre|${NO_BASIS}` })), ["alpha-p3-002", "alpha-p4-001"]);
+  assert.deepEqual(ids(filterSchedules(ROWS, { county: NONE })), ["beta-p5-001"]);
+  assert.deepEqual(ids(filterSchedules(ROWS, { county: `${NONE}|Example`, purpose: "water|schools" })), ["beta-p5-001", "gamma-p1-001"]);
+  assert.deepEqual(ids(filterSchedules(ROWS, { agencies: "City of Alpha" })), ["alpha-p3-001", "alpha-p3-002", "alpha-p4-001"]);
+  assert.deepEqual(ids(filterSchedules(ROWS, { agencies: "City of Alpha|Beta Water District", status: "adopted", q: "storm" })), ["alpha-p3-002"]);
+  assert.deepEqual(ids(filterSchedules(ROWS, { type: "capacity_charge" }, { skip: "type" })), ids(ROWS), "skip leaves one filter out");
+  assert.deepEqual(ids(filterSchedules(ROWS, { agency: "Beta Water District" })), ids(ROWS), "agency opens a page; it does not filter");
+
   assert.deepEqual(facetCounts(ROWS, "basis", BASES), [
     { value: "per_dwelling_unit", label: "Per dwelling unit", count: 1 },
     { value: "per_square_foot", label: "Per square foot", count: 1 },
@@ -343,8 +356,28 @@ function mount(fetchText, over = {}) {
   root = new FakeElement("main");
   const content = new FakeElement("div");
   root.append(content);
-  const calls = { rerender: 0, opened: [], selected: [] };
+  const calls = { rerender: 0, opened: [], selected: [], boxes: [], cols: [] };
+  // The filter boxes are app.js's (lib/filter-box.js); these stand-ins keep
+  // the specs the tab hands over, with the real counting and summaries.
+  const button = (spec, list) => {
+    list.push(spec);
+    const b = new FakeElement("button");
+    b.setAttribute("data-key", spec.key);
+    b.textContent = spec.label;
+    return b;
+  };
   const ctx = {
+    filterBoxButton: (spec) => button(spec, calls.boxes),
+    colFilterButton: (spec) => button(spec, calls.cols),
+    facetOptions,
+    boxSummary,
+    filterTag: (label, onRemove) => {
+      const t = new FakeElement("button");
+      t.setAttribute("class", "filter-tag");
+      t.textContent = label;
+      t.addEventListener("click", onRemove);
+      return t;
+    },
     fetchText,
     isCurrent: () => true,
     rerender: () => {
@@ -380,6 +413,9 @@ const fetchOk = (text) => async (p) => {
   content.replaceChildren();
   renderSchedules(content, ctx);
   assert.equal(content.textContent, NOT_PUBLISHED);
+  // The download is empty and says why, so a report keeps the tab.
+  const x = await exportSchedules(ctx, { page: false });
+  assert.deepEqual([x.label, x.rows.length, x.intro, x.empty], ["Schedules", 0, NOT_PUBLISHED, NOT_PUBLISHED]);
 }
 
 // Any other failure is shown as one, and the next visit asks again.
@@ -456,32 +492,65 @@ const fetchOk = (text) => async (p) => {
   assert.deepEqual(texts(byTag(printed, "dd")).slice(2, 4), ["First note", "Second note"]);
   assert.equal(texts(byTag(printed, "dd"))[5], "Government Code 66000 et seq. (p.2)");
 
-  // Filters offer only the values present, with counts, and "Basis not printed" for empty bases.
-  const basis = byId(content, "sched-basis");
-  assert.deepEqual(byTag(basis, "option").map((o) => [o.getAttribute("value"), o.textContent]), [
-    ["", "All"], ["per_dwelling_unit", "Per dwelling unit (1)"], ["per_square_foot", "Per square foot (1)"],
-    ["per_meter_size", "By meter size (1)"], ["per_acre", "Per acre (1)"], [NO_BASIS, "Basis not printed (1)"],
-  ]);
-  assert.deepEqual(byTag(byId(content, "sched-type"), "option").map((o) => o.getAttribute("value")),
-    ["", "development_impact_fee", "capacity_charge", "school_facilities_fee"]);
-  assert.equal(byTag(content, "label").find((l) => l.textContent === "Basis").getAttribute("for"), "sched-basis");
+  // A box for each filter, and a ▾ on the Agency, Basis and Status columns.
+  const spec = (key) => calls.boxes.filter((b) => b.key === key).at(-1);
+  const opts = async (key) => (await spec(key).options()).map((o) => [o.value, o.label, o.count]).sort((a, b) => a[0].localeCompare(b[0]));
+  const countText = () => byClass(content, "count")[0].textContent;
+  assert.deepEqual([...new Set(calls.boxes.map((b) => b.key))], ["scagencies", "sccounty", "sctype", "scbasis", "scpurpose", "scstatus"]);
+  assert.deepEqual(calls.cols.map((b) => b.key), ["scagencies", "scbasis", "scstatus"]);
+  assert.equal(spec("scagencies").many, true, "agencies are a long list to search");
+  assert.equal(byId(content, "sched-filters").classes.includes("filters-more"), true);
 
-  basis.value = NO_BASIS;
-  basis.fire("change");
-  assert.equal(byClass(content, "result-bar")[0].textContent, "1 row · 1 agency");
-  assert.equal(byId(content, "sched-basis").value, NO_BASIS);
+  // Boxes offer only the values present, with counts, and "Basis not printed" for empty bases.
+  assert.deepEqual(await opts("scbasis"), [
+    [NO_BASIS, "Basis not printed", 1], ["per_acre", "Per acre", 1], ["per_dwelling_unit", "Per dwelling unit", 1],
+    ["per_meter_size", "By meter size", 1], ["per_square_foot", "Per square foot", 1],
+  ]);
+  assert.deepEqual(await opts("sctype"), [["capacity_charge", "Capacity charge", 1], ["development_impact_fee", "Development impact fee", 3], ["school_facilities_fee", "School facilities fee", 1]]);
+  assert.deepEqual(await opts("sccounty"), [[NONE, "(no county)", 1], ["Example", "Example", 4]]);
+  assert.equal(countText(), "5 rows · 3 agencies");
+
+  spec("scbasis").apply(NO_BASIS);
+  assert.equal(countText(), "1 row · 1 agency");
+  assert.equal(spec("scbasis").get(), NO_BASIS);
   assert.deepEqual(texts(byTag(content, "tbody")[0].children.map((tr) => tr.children[1])), ["Traffic Fee"]);
-  const type = byId(content, "sched-type");
-  type.value = "capacity_charge";
-  type.fire("change");
+  assert.deepEqual(texts(byClass(content, "filter-tag")), ["Basis: Basis not printed"]);
+  // Each box counts against the other filters, never its own.
+  assert.deepEqual(await opts("sctype"), [["development_impact_fee", "Development impact fee", 1]]);
+  assert.equal((await opts("scbasis")).length, 5);
+  spec("sctype").apply("capacity_charge");
   assert.equal(byTag(content, "tbody")[0].textContent, "No rate matches these filters.");
   assert.equal(byTag(content, "tbody")[0].children[0].children[0].getAttribute("colspan"), "11");
+  // A tag removes its filter.
+  byClass(content, "filter-tag").find((t) => t.textContent.startsWith("Fee type")).fire("click");
+  assert.equal(countText(), "1 row · 1 agency");
+  spec("scbasis").apply(`per_acre|${NO_BASIS}`);
+  assert.equal(countText(), "2 rows · 1 agency");
+  assert.deepEqual(texts(byClass(content, "filter-tag")), ["Basis: Per acre or Basis not printed"]);
+  spec("scbasis").apply("");
+
+  // The agency box filters the statewide table to several agencies.
+  spec("scagencies").apply("City of Alpha|Beta Water District");
+  assert.equal(countText(), "4 rows · 2 agencies");
+  assert.deepEqual(await opts("scagencies"), [["<img src=x onerror=alert(1)>", "<img src=x onerror=alert(1)>", 1], ["Beta Water District", "Beta Water District", 1], ["City of Alpha", "City of Alpha", 3]]);
+  assert.deepEqual(await opts("scstatus"), [["adopted", "Adopted", 4]]);
+  spec("scagencies").apply("");
+
+  // The download: every row under the filters, in the table's order.
+  spec("sccounty").apply("Example");
+  const x = await exportSchedules(ctx, { page: true });
+  assert.equal(x.label, "Schedules");
+  assert.equal(x.rows.length, 4);
+  assert.deepEqual(x.filters, [{ label: "County", value: "Example" }]);
+  assert.deepEqual(x.agency(ROWS[0]), ["City of Alpha", { type: "city", county: "Example" }]);
+  assert.deepEqual(x.columns.map((c) => c.label).slice(0, 4), ["Agency", "County", "Program", "Fee type"]);
+  const csv = csvText(x.csv, x.rows).replace(/^\uFEFF/, "").split("\r\n");
+  assert.deepEqual(csv[0].split(",").slice(0, 3), ["schedule_row_id", "agency", "agency_as_printed"]);
+  assert.ok(csv[0].endsWith(",fee_type_label,purpose_label,basis_label,rate_status_label,land_use_label,page_url"));
+  assert.equal(csv.length, 6, "header, four rows and the closing line break");
+  spec("sccounty").apply("");
 
   // Sorting by rate puts the largest first and the unpriced cell last.
-  byId(content, "sched-basis").value = "";
-  byId(content, "sched-basis").fire("change");
-  byId(content, "sched-type").value = "";
-  byId(content, "sched-type").fire("change");
   const rateTh = byTag(content, "th").find((th) => th.textContent === "Rate");
   byTag(rateTh, "button")[0].fire("click");
   const rateCol = () => texts(byTag(content, "tbody")[0].children.map((tr) => tr.children[4]));
@@ -495,7 +564,8 @@ const fetchOk = (text) => async (p) => {
   q.value = "storm";
   q.fire("input");
   await new Promise((r) => setTimeout(r, 200));
-  assert.equal(byClass(content, "result-bar")[0].textContent, "1 row · 1 agency");
+  assert.equal(countText(), "1 row · 1 agency");
+  assert.deepEqual(texts(byClass(content, "filter-tag")), ["“storm”"]);
   assert.equal(focused, byId(content, "sched-q"));
   assert.equal(focused.getAttribute("value"), "storm");
 
@@ -551,6 +621,11 @@ const fetchOk = (text) => async (p) => {
   byClass(content, "back")[0].fire("click");
   assert.equal(seen.length, 1);
   assert.deepEqual(Object.keys(seen[0]), SELECTION_KEYS);
+  for (const k of ["agency", "agencies", "county", "type", "basis", "purpose", "status"]) assert.ok(SELECTION_KEYS.includes(k), k);
+  assert.deepEqual(Object.keys(SELECTION_PARTS).sort(), ["agencies", "basis", "county", "purpose", "status", "type"]);
+  assert.equal(SELECTION_PARTS.type("capacity_charge"), true);
+  assert.equal(SELECTION_PARTS.type("nonsense"), false);
+  assert.equal(SELECTION_PARTS.basis(NO_BASIS), true);
   assert.equal(seen[0].agency, "");
   assert.equal(byTag(content, "h2").length, 0);
   // A selection the page did not make (the back button) wins over the last one it did.
@@ -563,7 +638,13 @@ const fetchOk = (text) => async (p) => {
   sel.dir = "sideways";
   content.replaceChildren();
   renderSchedules(content, ctx);
-  assert.equal(byClass(content, "result-bar")[0].textContent, "5 rows · 3 agencies");
+  assert.equal(byClass(content, "count")[0].textContent, "5 rows · 3 agencies");
+  // The address bar's "|" lists filter the table.
+  sel.type = "capacity_charge|school_facilities_fee";
+  content.replaceChildren();
+  renderSchedules(content, ctx);
+  assert.equal(byClass(content, "count")[0].textContent, "2 rows · 2 agencies");
+  sel.type = "";
   // An agency the file does not name falls back to the statewide view, with a notice.
   sel.agency = "Nowhere";
   content.replaceChildren();

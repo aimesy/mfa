@@ -8,7 +8,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCsvObjects } from "../lib/csv.js";
-import { buildFunds, balanceCheck, statewideEnding, searchAgencies, toCents, collectionsEntityName, resolveCell, FUND_MEASURES } from "../lib/funds.js";
+import { buildFunds, balanceCheck, statewideEnding, searchAgencies, filterFundAgencies, fundsStats, toCents, collectionsEntityName, resolveCell, FUND_MEASURES } from "../lib/funds.js";
+import { NONE } from "../lib/model.js";
 
 let seq = 0;
 function row(over) {
@@ -175,6 +176,26 @@ const fundYear = (funds, agency, fund, fy) => funds.agencyByName.get(agency).fun
   assert.equal(searchAgencies(funds, "").length, 2);
   const sw = statewideEnding(funds);
   assert.deepEqual(sw.map((t) => [t.fy, t.cents, t.agencies, t.funds]), [["2021-22", 500, 1, 1], ["2022-23", 300, 1, 1], ["2023-24", 700, 1, 1]]);
+
+  // The County and Type boxes: one value, several joined by "|", or none.
+  const names = (list) => list.map((a) => a.name);
+  assert.deepEqual(names(filterFundAgencies(funds)), ["Alpha County", "Zeta city"]);
+  assert.deepEqual(names(filterFundAgencies(funds, { type: "county" })), ["Alpha County"]);
+  assert.deepEqual(names(filterFundAgencies(funds, { type: "county|city" })), ["Alpha County", "Zeta city"]);
+  assert.deepEqual(names(filterFundAgencies(funds, { county: "Madera", type: "city" })), ["Zeta city"]);
+  assert.deepEqual(names(filterFundAgencies(funds, { county: NONE })), []);
+  assert.deepEqual(names(filterFundAgencies(funds, { q: "roads", type: "city" })), []);
+  assert.deepEqual(names(filterFundAgencies(funds, { q: "traffic", county: `Madera|${NONE}` })), ["Zeta city"]);
+
+  // The tiles count what the boxes keep; the statewide sums take the same list.
+  const alphaOnly = filterFundAgencies(funds, { type: "county" });
+  const st = fundsStats(alphaOnly);
+  assert.deepEqual([st.agencies, st.funds, st.fundYears, st.years], [1, 2, 3, ["2022-23", "2023-24"]]);
+  assert.equal(st.checks.none, 3);
+  assert.deepEqual(fundsStats(funds.agencies).years, funds.stats.years);
+  assert.equal(fundsStats(funds.agencies).fundYears, funds.stats.fundYears);
+  assert.deepEqual(fundsStats([]), { agencies: 0, funds: 0, fundYears: 0, years: [], checks: { closes: 0, rounding: 0, incomplete: 0, differs: 0, none: 0 } });
+  assert.deepEqual(statewideEnding({ agencies: alphaOnly }).map((t) => [t.fy, t.cents]), [["2022-23", 300], ["2023-24", 700]]);
 }
 
 // Fees collected: from the fund table, else from reported-fee-collections
@@ -349,5 +370,8 @@ if (existsSync(releaseCsv)) {
   const sw = statewideEnding(funds);
   console.log(`cells: ${Object.entries(s.cells).map(([k, n]) => `${n} ${k}`).join(", ")}; statewide years: ${sw.length}`);
   console.log(`statewide twins counted once: ${sw.filter((t) => t.twins).map((t) => `${t.fy} ${t.twins}`).join(", ")}`);
+  const all = fundsStats(funds.agencies);
+  assert.deepEqual([all.agencies, all.funds, all.fundYears, all.years], [s.agencies, s.funds, s.fundYears, s.years], "fundsStats over every agency matches buildFunds");
+  for (const k of ["closes", "rounding", "incomplete", "differs", "none"]) assert.equal(all.checks[k], c[k], k);
 }
 console.log("funds tests passed");

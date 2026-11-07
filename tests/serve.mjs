@@ -85,7 +85,14 @@ export function serve(mounts, port = 8765) {
     if (req.method === "HEAD") res.end();
     else createReadStream(file).pipe(res);
   });
-  return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
+  // A port already taken rejects, so a caller can try another.
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve(server);
+    });
+  });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

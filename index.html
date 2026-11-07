@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' https://aimesy.github.io https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://aimesy.github.io; font-src 'self' https://cdn.jsdelivr.net data:; connect-src 'self' https://mfa-data.amyc.us; img-src 'self' data: blob:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
+      content="default-src 'self'; script-src 'self' 'sha256-zwnLPFzWZ9i24gESKu2dxmnfPD5XUGF2qPtpLuXFF2Y=' https://aimesy.github.io https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://aimesy.github.io; font-src 'self' https://cdn.jsdelivr.net data:; connect-src 'self' https://mfa-data.amyc.us; img-src 'self' data: blob:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
     <title>California Mitigation Fee Database: Impact Fee Collections</title>
     <meta name="description" content="Impact fee collections reported by California cities, counties and districts, each figure shown on the page of the report it was read from." />
@@ -31,7 +31,7 @@
     <meta name="theme-color" content="#24211d" />
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="vendor/noto-emoji/noto-emoji.css" />
-    <link rel="stylesheet" href="styles.css?v=20261101-3" />
+    <link rel="stylesheet" href="styles.css?v=20261106-3" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/theme.css" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/theme-bar.css" />
     <link rel="stylesheet" href="https://aimesy.github.io/themes/src/bug-report.css" />
@@ -79,7 +79,7 @@
             <span id="stats" class="hdr-stats">opening release</span>
           </div>
           <div class="hdr-right">
-            <button class="hbtn" id="export-btn" type="button" title="Download this view (primary rows) as CSV" hidden>CSV</button>
+            <button class="hbtn" id="export-btn" type="button" aria-haspopup="menu" aria-expanded="false" title="Download this view: CSV or HTML report" hidden>Download ▾</button>
             <a class="hbtn" id="repo-link" href="https://github.com/aimesy/mfa" target="_blank" rel="noopener">GitHub</a>
             <a class="hbtn" id="about-link" href="/about/">About</a>
             <a class="hbtn" id="terms-link" href="https://amyc.us/terms" target="_blank" rel="noopener">T&amp;Cs</a>
@@ -90,6 +90,7 @@
       <nav class="view-strip" aria-label="Views">
         <div class="view-tabs">
           <a class="view-tab" data-view="entities" href="./">Jurisdictions</a>
+          <a class="view-tab" data-view="districts" href="?view=districts">Districts</a>
           <a class="view-tab" data-view="fees" href="?view=fees">Fees</a>
           <a class="view-tab" data-view="sources" href="?view=sources">Sources</a>
           <a class="view-tab" data-view="figures" href="?view=figures">Figures</a>
@@ -128,6 +129,8 @@
       </div>
     </div>
 
-    <script type="module" src="app.js?v=20261101-3"></script>
+    <!-- Every lib module carries the app.js key, so one bump refreshes them all (check-static.mjs keeps the map, the key and its hash in step). -->
+    <script type="importmap">{"imports":{"./lib/apr-view.js":"./lib/apr-view.js?v=20261106-3","./lib/apr.js":"./lib/apr.js?v=20261106-3","./lib/arith.js":"./lib/arith.js?v=20261106-3","./lib/csv.js":"./lib/csv.js?v=20261106-3","./lib/districts.js":"./lib/districts.js?v=20261106-3","./lib/dom.js":"./lib/dom.js?v=20261106-3","./lib/evidence.js":"./lib/evidence.js?v=20261106-3","./lib/export.js":"./lib/export.js?v=20261106-3","./lib/fee-links.js":"./lib/fee-links.js?v=20261106-3","./lib/filter-box.js":"./lib/filter-box.js?v=20261106-3","./lib/funds-view.js":"./lib/funds-view.js?v=20261106-3","./lib/funds.js":"./lib/funds.js?v=20261106-3","./lib/model.js":"./lib/model.js?v=20261106-3","./lib/pagelines.js":"./lib/pagelines.js?v=20261106-3","./lib/population.js":"./lib/population.js?v=20261106-3","./lib/schedules-view.js":"./lib/schedules-view.js?v=20261106-3","./lib/schedules.js":"./lib/schedules.js?v=20261106-3","./lib/taxonomy.js":"./lib/taxonomy.js?v=20261106-3","./lib/viewer.js":"./lib/viewer.js?v=20261106-3"}}</script>
+    <script type="module" src="app.js?v=20261106-3"></script>
   </body>
 </html>

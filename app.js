@@ -10,7 +10,7 @@
 // evidence viewer, sums add primary rows only, and a missing figure is shown
 // as missing, never as zero.
 
-import { parseCsvObjects, toCsv } from "./lib/csv.js";
+import { parseCsvObjects } from "./lib/csv.js";
 import {
   buildModel, filterFigures, sortFigures, summarize, entityMatrix, coverageByYear,
   fmtUsd, fmtSum, fmtInt, fmtBytes, fmtFy, fyRanges, humanize, scopeLabel, scopeKey, scopeSymbol, entityTypeLabel,
@@ -18,8 +18,13 @@ import {
   splitLimitations, EMPTY_FILTERS, NONE, matchesChoice, matchesCategory, splitChoice, SEP, SORT_COLUMNS, feeKey, fyStartYear, searchTerms,
 } from "./lib/model.js";
 import {
-  NAMESPACES, categoryLabel, categoryParam, categoryTree, lawLabel, areaLabel, namespaceLabel, NOT_CLASSIFIED,
+  categoryLabel, categoryParam, categoryTree, lawLabel, areaLabel, namespaceLabel, NOT_CLASSIFIED,
 } from "./lib/taxonomy.js";
+import {
+  filterBoxButton, colFilterButton, closeFilterBox, refreshFilterBoxes, facetOptions, boxSummary,
+} from "./lib/filter-box.js";
+import { loadDistricts } from "./lib/districts.js";
+import { csvText, downloadText, exportFilename, reportHtml } from "./lib/export.js";
 import { readArithmetic } from "./lib/arith.js";
 import { PdfViewer } from "./lib/viewer.js";
 import { checkOutline, readPageText, setDataFetch } from "./lib/evidence.js";
@@ -27,9 +32,10 @@ import { readPageLines, figureColumn, namesFromPage } from "./lib/pagelines.js";
 import { el, svg } from "./lib/dom.js";
 import {
   emptyPermitsState, readPermitsState, permitsParams, permitsKey, permitsToolbar, syncPermitsToolbar, renderPermits, renderEntityPermits,
+  exportPermits,
 } from "./lib/apr-view.js";
-import { renderFunds } from "./lib/funds-view.js";
-import { renderSchedules, SELECTION_KEYS as SCHEDULE_KEYS } from "./lib/schedules-view.js";
+import { renderFunds, exportFunds } from "./lib/funds-view.js";
+import { renderSchedules, exportSchedules, SELECTION_KEYS as SCHEDULE_KEYS, SELECTION_PARTS as SCHEDULE_PARTS } from "./lib/schedules-view.js";
 
 // ============================================================ CONFIG
 
@@ -39,13 +45,18 @@ const DEFAULT_BRANCH = "main";
 // files, /releases/download/<tag>/<name> its release assets, and /ref answers
 // the commit at main.
 const DATA_ROOT = "https://mfa-data.amyc.us/";
-const VIEWS = ["entities", "fees", "sources", "figures", "funds", "schedules", "permits", "coverage", "stats"];
+const VIEWS = ["entities", "districts", "fees", "sources", "figures", "funds", "schedules", "permits", "coverage", "stats"];
 const DEFAULT_VIEW = "entities";
+// Exports link here: a report is read away from this page, and a local
+// ?data= address means nothing to anyone else.
+const SITE_URL = "https://mfa.amyc.us/";
 const PAGE_SIZES = [50, 100, 250, 500];
 const DEFAULT_SORT = { col: "fy", dir: "desc" };
 const DEFAULT_ENTITY_SORT = { col: "sum", dir: "desc" };
 const DEFAULT_SOURCE_SORT = { col: "agency", dir: "asc" };
 const DEFAULT_FEE_SORT = { col: "entity", dir: "asc" };
+const DEFAULT_DISTRICT_SORT = { col: "n", dir: "asc" };
+const DEFAULT_DISTRICT_PAGE_SORT = { col: "share", dir: "desc" };
 const RELEASE_PATH = /^(?:(?:sources|evidence|data|docs)\/[A-Za-z0-9._\/-]+|manifest\.json|README\.md)$/;
 // The release's PDFs are GitHub release assets, which the CSVs list by their
 // download URL; the Worker serves them at the same path. Not tied to a commit.
@@ -266,12 +277,13 @@ function dataUrl(path) {
   return ASSET_PATH.test(p) ? `${DATA_ROOT}${p}` : `${DATA_ROOT}${cfg.ref}/${p}`;
 }
 
-// Same-page link that keeps the data source (?data= or a pinned ?ref=).
+// Same-page link that keeps the data source (?data= or a pinned ?ref=) and
+// the district filter, which holds across tabs; params may clear it.
 function hrefWith(params) {
   const p = new URLSearchParams();
   if (cfg.local) p.set("data", cfg.param.data);
   else if (cfg.pinned) p.set("ref", cfg.ref);
-  for (const [k, v] of Object.entries(params)) if (v && !(k === "view" && v === DEFAULT_VIEW)) p.set(k, v);
+  for (const [k, v] of Object.entries({ view: "", ad: state.ad, sd: state.sd, ...params })) if (v && !(k === "view" && v === DEFAULT_VIEW)) p.set(k, v);
   const qs = p.toString();
   return `${location.pathname}${qs ? `?${qs}` : ""}`;
 }
@@ -292,24 +304,33 @@ function officialUrl(raw, page) {
 
 // ============================================================ STATE
 
+// The Figures filters: lib/model.js's, plus fy (fiscal years joined by SEP),
+// which replaces its fyFrom and fyTo range.
+const FIGURE_FILTERS = Object.freeze({ ...EMPTY_FILTERS, fy: "" });
+
 const state = {
   view: DEFAULT_VIEW,
-  filters: { ...EMPTY_FILTERS },
+  filters: { ...FIGURE_FILTERS },
   sort: { ...DEFAULT_SORT },
   page: 1,
   pageSize: 100,
+  // Assembly and Senate districts, one filter for every tab.
+  ad: "", sd: "",
   entity: "",
   eq: "", etype: "", ecounty: "",
   esort: { ...DEFAULT_ENTITY_SORT },
-  sq: "", sentity: "",
+  sq: "", sentity: "", stype: "", sfy: "",
   ssort: { ...DEFAULT_SOURCE_SORT },
+  dch: "ad", dn: "",
+  dsort: { ...DEFAULT_DISTRICT_SORT },
+  dpsort: { ...DEFAULT_DISTRICT_PAGE_SORT },
   fee: "",
   fq: "", fcat: "", ftype: "", fcounty: "", fentity: "",
   fsort: { ...DEFAULT_FEE_SORT },
   cyr: "", ccls: "", ctype: "", ccounty: "", cq: "", cstat: "",
   csort: { col: "name", dir: "asc" },
   cpage: 1,
-  fa: "", faq: "",
+  fa: "", faq: "", facounty: "", fatype: "",
   sc: Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, ""])),
   permits: emptyPermitsState(),
   figure: "",
@@ -345,56 +366,118 @@ const SOURCE_SORTS = ["agency", "title", "type", "fy", "pages", "bytes", "figure
 // The Schedules tab's defaults (lib/schedules-view.js), left out of the URL.
 const SCHEDULE_DEFAULTS = { sort: "agency", dir: "asc", page: "1" };
 
+// Every filter takes several values joined by SEP. Each part is checked on
+// its own, so one bad part in a link drops only that part.
+function cleanChoice(raw, ok = (v) => v.length <= 300, norm = (v) => v) {
+  const out = [];
+  for (const part of splitChoice(raw)) {
+    const v = part.trim();
+    if (!v || !ok(v)) continue;
+    const n = norm(v);
+    if (!out.includes(n)) out.push(n);
+  }
+  return out.join(SEP);
+}
+
+// A fiscal year as the release writes it: "2023-24", or a calendar year
+// ("2020") for reports kept on one.
+const FY_PART = /^\d{4}(?:-\d{2})?$/;
+const fyPart = (v) => v === NONE || FY_PART.test(v);
+const seatPart = (max) => (v) => v === NONE || (/^\d{1,3}$/.test(v) && Number(v) >= 1 && Number(v) <= max);
+const seatNorm = (v) => (v === NONE ? v : String(Number(v)));
+const DISTRICT_SORTS = ["n", "counties", "muni", "muniFig", "school", "special", "figures", "sum"];
+const DISTRICT_PAGE_SORTS = ["name", "type", "county", "share", "figures", "latest", "sum"];
+
+// Two values: both ticked is no filter.
+function cleanArith(raw) {
+  const v = cleanChoice(raw, (x) => x === "yes" || x === "no");
+  return v.includes(SEP) ? "" : v;
+}
+
+// Old links name a range, from= and to=; it becomes the set of fiscal years
+// in it once the release's years are known.
+let legacyFy = null;
+
+function legacyYears(range) {
+  const { from, to } = range;
+  const years = model.years.filter((y) => (!from || y >= from) && (!to || y <= to));
+  return (years.length ? years : [from || to]).join(SEP);
+}
+
 function readState() {
   const p = new URLSearchParams(location.search);
   // view=about is the old name of the Stats tab.
   const view = p.get("view") === "about" ? "stats" : p.get("view");
   state.view = VIEWS.includes(view) ? view : DEFAULT_VIEW;
   state.filters = {
-    ...EMPTY_FILTERS,
+    ...FIGURE_FILTERS,
     q: p.get("q") || "",
-    type: p.get("type") || "",
-    county: p.get("county") || "",
-    cat: splitChoice(p.get("cat")).map(categoryParam).join(SEP),
-    law: p.get("law") || "",
-    area: p.get("area") || "",
-    scope: splitChoice(p.get("scope")).map(scopeKey).join(SEP),
-    fyFrom: p.get("from") || "",
-    fyTo: p.get("to") || "",
-    arith: ["yes", "no"].includes(p.get("arith")) ? p.get("arith") : "",
-    entity: p.get("entity") || "",
+    type: cleanChoice(p.get("type")),
+    county: cleanChoice(p.get("county")),
+    cat: cleanChoice(p.get("cat"), undefined, categoryParam),
+    law: cleanChoice(p.get("law")),
+    area: cleanChoice(p.get("area")),
+    scope: cleanChoice(p.get("scope"), undefined, scopeKey),
+    fy: cleanChoice(p.get("fy"), fyPart),
+    arith: cleanArith(p.get("arith")),
+    entity: cleanChoice(p.get("entity")),
     source: p.get("source") || "",
   };
+  legacyFy = null;
+  if (!state.filters.fy) {
+    const from = FY_PART.test(p.get("from") || "") ? p.get("from") : "";
+    const to = FY_PART.test(p.get("to") || "") ? p.get("to") : "";
+    if (from || to) {
+      if (model) state.filters.fy = legacyYears({ from, to });
+      else legacyFy = { from, to };
+    }
+  }
+  state.ad = cleanChoice(p.get("ad"), seatPart(80), seatNorm);
+  state.sd = cleanChoice(p.get("sd"), seatPart(40), seatNorm);
   state.sort = parseSort(p.get("sort"), DEFAULT_SORT, SORT_COLUMNS);
   state.page = Math.max(1, Number.parseInt(p.get("page"), 10) || 1);
   const size = Number.parseInt(p.get("size"), 10);
   state.pageSize = PAGE_SIZES.includes(size) ? size : 100;
   state.entity = p.get("e") || "";
   state.eq = p.get("eq") || "";
-  state.etype = p.get("etype") || "";
-  state.ecounty = p.get("ecounty") || "";
+  state.etype = cleanChoice(p.get("etype"));
+  state.ecounty = cleanChoice(p.get("ecounty"));
   state.esort = parseSort(p.get("esort"), DEFAULT_ENTITY_SORT, ENTITY_SORTS);
   state.sq = p.get("sq") || "";
-  state.sentity = p.get("sentity") || "";
+  state.sentity = cleanChoice(p.get("sentity"));
+  state.stype = cleanChoice(p.get("stype"), undefined, sourceTypeNorm);
+  state.sfy = cleanChoice(p.get("sfy"), fyPart);
   state.ssort = parseSort(p.get("ssort"), DEFAULT_SOURCE_SORT, SOURCE_SORTS);
+  state.dch = p.get("dch") === "sd" ? "sd" : "ad";
+  state.dn = cleanChoice(p.get("dn"), (v) => v !== NONE && seatPart(state.dch === "sd" ? 40 : 80)(v), seatNorm).split(SEP)[0];
+  state.dsort = parseSort(p.get("dsort"), DEFAULT_DISTRICT_SORT, DISTRICT_SORTS);
+  state.dpsort = parseSort(p.get("dpsort"), DEFAULT_DISTRICT_PAGE_SORT, DISTRICT_PAGE_SORTS);
   state.fee = state.view === "fees" ? p.get("fee") || "" : "";
   state.fq = p.get("fq") || "";
-  state.fcat = categoryParam(p.get("fcat") || "");
-  state.ftype = p.get("ftype") || "";
-  state.fcounty = p.get("fcounty") || "";
-  state.fentity = p.get("fentity") || "";
+  state.fcat = cleanChoice(p.get("fcat"), undefined, categoryParam);
+  state.ftype = cleanChoice(p.get("ftype"));
+  state.fcounty = cleanChoice(p.get("fcounty"));
+  state.fentity = cleanChoice(p.get("fentity"));
   state.fsort = parseSort(p.get("fsort"), DEFAULT_FEE_SORT, FEE_SORTS);
   state.cyr = p.get("cyr") === "all" || (!p.has("cyr") && storedCoverageYears() === "all") ? "all" : "";
-  state.ccls = COVERAGE_CLASSES.includes(p.get("ccls")) ? p.get("ccls") : "";
-  state.ctype = p.get("ctype") || "";
-  state.ccounty = p.get("ccounty") || "";
+  state.ccls = cleanChoice(p.get("ccls"), (v) => COVERAGE_CLASSES.includes(v));
+  // A type is plain ("unified_school_district", as older links have it) or
+  // qualified by its class ("school:unified_school_district").
+  state.ctype = cleanChoice(p.get("ctype"), (v) => v.length <= 300 && (!v.includes(":") || COVERAGE_CLASSES.includes(v.slice(0, v.indexOf(":")))));
+  state.ccounty = cleanChoice(p.get("ccounty"));
   state.cq = p.get("cq") || "";
-  state.cstat = COVERAGE_STATUSES.some(([k]) => k && k === p.get("cstat")) ? p.get("cstat") : "";
+  state.cstat = cleanChoice(p.get("cstat"), (v) => COVERAGE_STATUSES.some(([k]) => k && k === v));
   state.csort = parseSort(p.get("csort"), DEFAULT_COVERAGE_SORT, COVERAGE_SORTS);
   state.cpage = Math.max(1, Number.parseInt(p.get("cpage"), 10) || 1);
   state.fa = p.get("fa") || "";
   state.faq = p.get("faq") || "";
-  state.sc = Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, p.get(`sc${k}`) || ""]));
+  state.facounty = cleanChoice(p.get("facounty"));
+  state.fatype = cleanChoice(p.get("fatype"));
+  // Schedules' box filters take "|" lists; the rest are single values.
+  state.sc = Object.fromEntries(SCHEDULE_KEYS.map((k) => {
+    const raw = p.get(`sc${k}`) || "";
+    return [k, SCHEDULE_PARTS[k] ? cleanChoice(raw, SCHEDULE_PARTS[k]) : raw];
+  }));
   // In place: the Permits toolbar keeps a reference to this object.
   Object.assign(state.permits, readPermitsState(p));
   state.figure = p.get("f") || "";
@@ -410,9 +493,11 @@ function stateParams({ pinRef = false } = {}) {
   if (state.view !== DEFAULT_VIEW) p.set("view", state.view);
   const f = state.filters;
   const put = (k, v) => { if (v) p.set(k, v); };
+  put("ad", state.ad);
+  put("sd", state.sd);
   if (state.view === "figures") {
     put("q", f.q); put("type", f.type); put("county", f.county); put("cat", f.cat); put("law", f.law); put("area", f.area); put("scope", f.scope);
-    put("from", f.fyFrom); put("to", f.fyTo); put("arith", f.arith); put("entity", f.entity); put("source", f.source);
+    put("fy", f.fy); put("arith", f.arith); put("entity", f.entity); put("source", f.source);
     put("sort", sortParam(state.sort, DEFAULT_SORT));
     if (state.page > 1) p.set("page", state.page);
     if (state.pageSize !== 100) p.set("size", state.pageSize);
@@ -431,15 +516,24 @@ function stateParams({ pinRef = false } = {}) {
       put("fsort", sortParam(state.fsort, DEFAULT_FEE_SORT));
     }
   } else if (state.view === "sources") {
-    put("sq", state.sq); put("sentity", state.sentity);
+    put("sq", state.sq); put("sentity", state.sentity); put("stype", state.stype); put("sfy", state.sfy);
     put("ssort", sortParam(state.ssort, DEFAULT_SOURCE_SORT));
+  } else if (state.view === "districts") {
+    if (state.dch !== "ad") p.set("dch", state.dch);
+    put("dn", state.dn);
+    if (state.dn) put("dpsort", sortParam(state.dpsort, DEFAULT_DISTRICT_PAGE_SORT));
+    else put("dsort", sortParam(state.dsort, DEFAULT_DISTRICT_SORT));
   } else if (state.view === "coverage") {
     put("cyr", state.cyr); put("ccls", state.ccls); put("ctype", state.ctype); put("ccounty", state.ccounty); put("cq", state.cq); put("cstat", state.cstat);
     put("csort", sortParam(state.csort, DEFAULT_COVERAGE_SORT));
     if (state.cpage > 1) p.set("cpage", state.cpage);
   } else if (state.view === "funds") {
     if (state.fa) put("fa", state.fa);
-    else put("faq", state.faq);
+    else {
+      put("faq", state.faq);
+      put("facounty", state.facounty);
+      put("fatype", state.fatype);
+    }
   } else if (state.view === "schedules") {
     for (const k of SCHEDULE_KEYS) {
       const v = String(state.sc[k] ?? "");
@@ -552,10 +646,24 @@ async function boot() {
     model = buildModel(fees.rows, sources.rows);
     if (model.problems.length) console.warn("Figure groups without exactly one primary row:", model.problems);
     indexPages();
+    const given = new URLSearchParams(location.search);
+    // An about link, or a publication type given by its release code.
+    let rewrite = given.get("view") === "about" || (given.has("stype") && given.get("stype") !== state.stype);
+    if (legacyFy) {
+      state.filters.fy = legacyYears(legacyFy);
+      legacyFy = null;
+      rewrite = true;
+    }
+    // A district in the link filters the first rows drawn, so its file
+    // comes first; a failure shows on the tab, with Retry.
+    if (state.ad || state.sd) {
+      showLoading("Loading", "Reading legislative districts.");
+      await ensureDistricts().catch((err) => console.warn(err));
+    }
     $("loading-banner").hidden = true;
     $("workspace").hidden = false;
     renderStats();
-    if (new URLSearchParams(location.search).get("view") === "about") writeUrl();
+    if (rewrite) writeUrl();
     renderAll();
   } catch (err) {
     console.error(err);
@@ -598,13 +706,29 @@ function renderStats() {
 }
 
 function renderTabs() {
+  let open = null;
   for (const a of document.querySelectorAll(".view-tab")) {
     const active = a.dataset.view === state.view;
     a.classList.toggle("active", active);
     if (active) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
     a.href = hrefWith({ view: a.dataset.view });
+    if (active) open = a;
   }
+  revealTab(open);
+  renderExportButton();
+}
+
+// On a phone the tab strip scrolls sideways, and a link straight to Permits
+// opened with its tab out of sight. Moves the strip only; scrollIntoView
+// would also move the page.
+function revealTab(tab) {
+  const strip = tab?.parentElement;
+  if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+  const s = strip.getBoundingClientRect();
+  const t = tab.getBoundingClientRect();
+  if (t.left < s.left) strip.scrollLeft -= s.left - t.left + 8;
+  else if (t.right > s.right) strip.scrollLeft += t.right - s.right + 8;
 }
 
 function updateTitle() {
@@ -623,6 +747,8 @@ function updateTitle() {
   else if (state.view === "schedules") t = `Schedules · ${base}`;
   else if (state.view === "permits") t = `Permits · ${base}`;
   else if (state.view === "coverage") t = `Coverage · ${base}`;
+  else if (state.view === "districts" && state.dn) t = `${CHAMBER[state.dch].label} ${state.dn} · Districts · ${base}`;
+  else if (state.view === "districts") t = `Districts · ${base}`;
   else if (state.view === "stats") t = `Stats · ${base}`;
   document.title = t;
 }
@@ -682,11 +808,251 @@ function flash(button, text, restore) {
   setTimeout(() => { button.textContent = restore; }, 1400);
 }
 
+// ------------------------------------------------------------ FILTER BOXES
+// Every filter is a checkbox box (lib/filter-box.js): tick any number of
+// values (any of them matches; different boxes must all match), each with
+// its count among the rows the tab's other filters leave. A tab's filters
+// are one object, its own fields plus ad and sd, and its rows a function of
+// that object, so a box counts by running the tab's filter without itself.
+
+const noneText = (fn, none = "(not recorded)") => (v) => (v === NONE || v === "" ? none : fn(v));
+const catText = (v) => (v === NONE ? NOT_CLASSIFIED : categoryLabel(v.includes("/") ? v : `${v}/`));
+
+const CHAMBER = {
+  ad: { label: "Assembly District", box: "Assembly district", short: "AD", word: "Assembly", seats: 80, csv: "assembly" },
+  sd: { label: "Senate District", box: "Senate district", short: "SD", word: "Senate", seats: 40, csv: "senate" },
+};
+const CHAMBERS = ["ad", "sd"];
+
+// The same words as districts.json's meta.caveat, for a box opened before
+// the file has loaded.
+const DISTRICT_CAVEAT = "Each agency is listed under every Assembly and Senate district its territory reaches, even by a small part (for a special district, a part that holds a 2020 census block or is over 100 meters wide), so many appear under more than one district and district totals overlap.";
+const districtCaveat = () => districts?.meta.caveat || DISTRICT_CAVEAT;
+const districtLabel = (ch, v) => (v === NONE ? "(not mapped)" : `${CHAMBER[ch].short} ${v}`);
+
+function categoryOptions(cats) {
+  const counts = new Map();
+  for (const c of cats) counts.set(c || "", (counts.get(c || "") || 0) + 1);
+  return categoryTree(counts);
+}
+
+const latestPrimary = (fee) => fee.figures[fee.figures.length - 1].primary;
+
+// What each tab filters on. filter() is the tab's filter object now, rows(f)
+// its rows under any such object, set(k, v) stores one field, clear() its own
+// fields, agency(row) the [name, opts] that districts.js looks up, boxes the
+// toolbar boxes (the district boxes follow) and tags the order of the tags
+// in its result bar.
+const TABS = {
+  figures: {
+    label: "Figures",
+    filter: () => ({ ...state.filters, ad: state.ad, sd: state.sd }),
+    rows: (f) => figureRows(f),
+    set: (k, v) => { state.filters[k] = v; },
+    clear: () => { state.filters = { ...FIGURE_FILTERS }; },
+    agency: (fig) => releaseWhere(fig.entity),
+    boxes: ["cat", "law", "area", "type", "county", "scope", "fy", "arith"],
+    tags: ["entity", "cat", "law", "area", "type", "county", "scope", "fy", "arith"],
+    defs: {
+      cat: { label: "Category", tree: true, sort: "given", text: catText, options: (rows) => categoryOptions(rows.map((f) => f.cat)) },
+      law: { label: "Law", value: (f) => f.law, text: noneText(lawLabel, NOT_CLASSIFIED) },
+      area: { label: "Area", value: (f) => f.area, text: noneText(areaLabel, NOT_CLASSIFIED) },
+      type: { label: "Type", value: (f) => f.primary.entity_type, text: noneText(entityTypeLabel) },
+      county: { label: "County", value: (f) => f.primary.county, text: noneText((c) => c) },
+      scope: { label: "Land use", value: (f) => scopeKey(f.primary.land_use_scope), text: noneText(scopeLabel) },
+      fy: { label: "Fiscal year", sort: "num", value: (f) => f.fy, text: noneText(fmtFy) },
+      arith: { label: "Arithmetic", value: (f) => (f.arith ? "yes" : "no"), text: (v) => (v === "yes" ? "Checked" : "Not checked") },
+      entity: { label: "Jurisdiction", many: true, value: (f) => f.entity, text: (v) => v },
+    },
+  },
+  entities: {
+    label: "Jurisdictions",
+    filter: () => ({ eq: state.eq, etype: state.etype, ecounty: state.ecounty, ad: state.ad, sd: state.sd }),
+    rows: (f) => entityMatches(f),
+    set: (k, v) => { state[k] = v; },
+    clear: () => { state.eq = ""; state.etype = ""; state.ecounty = ""; },
+    agency: (e) => releaseWhere(e.name),
+    boxes: ["etype", "ecounty"],
+    tags: ["etype", "ecounty"],
+    defs: {
+      etype: { label: "Type", value: (e) => e.type, text: noneText(entityTypeLabel) },
+      ecounty: { label: "County", value: (e) => e.county, text: noneText((c) => c) },
+    },
+  },
+  fees: {
+    label: "Fees",
+    filter: () => ({ fq: state.fq, fcat: state.fcat, ftype: state.ftype, fcounty: state.fcounty, fentity: state.fentity, ad: state.ad, sd: state.sd }),
+    rows: (f) => feeMatches(f),
+    set: (k, v) => { state[k] = v; },
+    clear: () => { state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = ""; state.fentity = ""; },
+    agency: (fee) => releaseWhere(fee.entity),
+    boxes: ["fcat", "ftype", "fcounty"],
+    tags: ["fentity", "fcat", "ftype", "fcounty"],
+    defs: {
+      fentity: { label: "Jurisdiction", many: true, value: (fee) => fee.entity, text: (v) => v },
+      fcat: { label: "Category", tree: true, sort: "given", text: catText, options: (rows) => categoryOptions(rows.map((fee) => fee.cat)) },
+      ftype: { label: "Type", value: (fee) => latestPrimary(fee).entity_type, text: noneText(entityTypeLabel) },
+      fcounty: { label: "County", value: (fee) => latestPrimary(fee).county, text: noneText((c) => c) },
+    },
+  },
+  sources: {
+    label: "Sources",
+    filter: () => ({ sq: state.sq, sentity: state.sentity, stype: state.stype, sfy: state.sfy, ad: state.ad, sd: state.sd }),
+    rows: (f) => sourceMatches(f),
+    set: (k, v) => { state[k] = v; },
+    clear: () => { state.sq = ""; state.sentity = ""; state.stype = ""; state.sfy = ""; },
+    agency: (s) => releaseWhere(s.receiving_entity),
+    boxes: ["stype", "sfy"],
+    tags: ["sentity", "stype", "sfy"],
+    defs: {
+      sentity: { label: "Agency", many: true, value: (s) => s.receiving_entity, text: (v) => v },
+      stype: { label: "Publication type", value: sourceType, text: noneText((v) => v) },
+      sfy: { label: "Covers", sort: "num", value: (s) => coversYears(s), text: noneText(fmtFy, "(no year named)") },
+    },
+  },
+  coverage: {
+    label: "Coverage",
+    filter: () => ({ ccls: state.ccls, ctype: state.ctype, ccounty: state.ccounty, cq: state.cq, cstat: state.cstat, ad: state.ad, sd: state.sd }),
+    rows: (f) => (coverageData ? coverageMatches(coverageData, f) : []),
+    set: (k, v) => { state[k] = v; },
+    clear: () => { state.ccls = ""; state.ctype = ""; state.ccounty = ""; state.cq = ""; state.cstat = ""; },
+    agency: (a) => [a.name, { type: a.type, county: a.county }],
+    needs: () => loadCoverage(),
+    boxes: ["ctype", "ccounty", "cstat"],
+    tags: ["ctype", "ccounty", "cstat"],
+    defs: {
+      // One tree for class (parents) and type (children); see coverageTypeTest.
+      ctype: {
+        label: "Type", tree: true, sort: "given", clear: { ccls: "" },
+        text: coverageTypeText, options: coverageTypeOptions, get: coverageTypeRaw, apply: (v) => setCoverageTypes(v),
+      },
+      ccounty: { label: "County", value: (a) => a.county, text: noneText((c) => c) },
+      cstat: { label: "Status", sort: "given", text: (v) => COVERAGE_STATUS_LABEL.get(v) || v, options: coverageStatusOptions },
+    },
+  },
+};
+
+// Pages reset when a filter changes, and the district filter reaches every tab.
+function resetPages() {
+  state.page = 1;
+  state.cpage = 1;
+}
+
+function setFilter(view, key, value) {
+  if (key === "ad" || key === "sd") state[key] = value;
+  else TABS[view].set(key, value);
+  resetPages();
+  update();
+}
+
+function clearTab(view) {
+  TABS[view].clear();
+  state.ad = "";
+  state.sd = "";
+  resetPages();
+  update();
+}
+
+const filtersActive = (f) => Object.values(f).some(Boolean);
+
+// A release agency's name with the type and county the release gives it, for
+// a district lookup, so a namesake's record in another county never answers.
+// A figure, fee or source takes its agency's, so every tab places it alike.
+function releaseWhere(name) {
+  const e = model?.entityByName.get(name);
+  return e ? [name, { type: e.type, county: e.county }] : [name];
+}
+
+// What a district box counts for one row: the districts its agency touches,
+// none (NONE) when it is not mapped.
+function chamberValues(where, ch) {
+  const [name, opts] = Array.isArray(where) ? where : [where];
+  return agencyDistricts(name, opts)?.[ch] ?? [];
+}
+
+function districtDef(ch, agency) {
+  return {
+    label: CHAMBER[ch].box, sort: "num", many: false,
+    note: districtCaveat, needs: ensureDistricts,
+    text: (v) => districtLabel(ch, v),
+    value: (row) => chamberValues(agency(row), ch),
+  };
+}
+
+// A box's spec from its definition. rows(f) and agency(row) come from the tab
+// (or a lib view through ctx.districtBoxes); options run once the files they
+// need have loaded, so a box opened early shows Loading.
+function makeSpec(key, def, { filter, rows, apply, needs }) {
+  return {
+    key,
+    label: def.label,
+    text: def.text,
+    many: def.many,
+    tree: def.tree,
+    sort: def.sort,
+    placeholder: def.placeholder,
+    hint: def.hint,
+    get note() { return typeof def.note === "function" ? def.note() : def.note; },
+    get: def.get || (() => filter()[key] || ""),
+    apply: def.apply || ((v) => apply(key, v)),
+    options: () => {
+      const f = { ...filter(), [key]: "", ...(def.clear || {}) };
+      const run = () => {
+        const list = rows(f);
+        return def.options ? def.options(list) : facetOptions(list, def.value, def.text);
+      };
+      const waits = [needs?.(), def.needs?.(), (f.ad || f.sd) && !districts ? ensureDistricts() : null].filter(Boolean);
+      return waits.length ? Promise.all(waits).then(run) : run();
+    },
+  };
+}
+
+const specCache = new Map();
+
+// The spec for one of an app tab's boxes; the same object every time, so a
+// toolbar button and a column ▾ name one box.
+function boxSpec(view, key) {
+  const id = `${view}:${key}`;
+  if (!specCache.has(id)) {
+    const tab = TABS[view];
+    const def = key === "ad" || key === "sd" ? districtDef(key, tab.agency) : tab.defs[key];
+    if (!def) return null;
+    specCache.set(id, makeSpec(key, def, {
+      filter: tab.filter, rows: tab.rows, needs: tab.needs, apply: (k, v) => setFilter(view, k, v),
+    }));
+  }
+  return specCache.get(id);
+}
+
+function filtersToggle(bar) {
+  const toggle = el("button", {
+    class: "btn filters-toggle", type: "button", "aria-expanded": bar.classList.contains("open") ? "true" : "false", "aria-controls": "filters-more", text: "Filters",
+    onclick: () => {
+      const open = bar.classList.toggle("open");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    },
+  });
+  return toggle;
+}
+
+// Search, then the boxes (folded behind Filters on a phone), then Clear.
+function filterToolbar(bar, view, search, after = []) {
+  const tab = TABS[view];
+  bar.append(
+    search,
+    filtersToggle(bar),
+    el("span", { class: "filters-more", id: "filters-more" }, [...tab.boxes, ...CHAMBERS].map((k) => filterBoxButton(boxSpec(view, k)))),
+    el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { toolbarView = ""; clearTab(view); } }),
+    ...after,
+  );
+}
+
+const copyLinkButton = () => copyButton("Copy link", () => new URL(urlFor(), location.href).href);
+
 function renderToolbar() {
   const bar = $("toolbar");
   const dossier = (state.view === "entities" && state.entity) || (state.view === "fees" && state.fee);
   const key = dossier ? "dossier" : state.view;
-  $("export-btn").hidden = !(state.view === "figures" || (state.view === "entities" && state.entity));
   if (key === toolbarView) {
     syncToolbar();
     return;
@@ -695,71 +1061,21 @@ function renderToolbar() {
   bar.replaceChildren();
   // Funds and Schedules draw their own controls above their tables.
   bar.hidden = key === "stats" || key === "dossier" || key === "funds" || key === "schedules";
+  const sep = () => el("span", { class: "sep" });
   if (key === "figures") {
-    const f = state.filters;
-    const years = model.years;
-    const setF = (k) => (v) => { state.filters[k] = v; state.page = 1; update(); };
-    const more = el("span", { class: "filters-more", id: "filters-more" });
-    const toggle = el("button", {
-      class: "btn filters-toggle", type: "button", "aria-expanded": "false", "aria-controls": "filters-more", text: "Filters",
-      onclick: () => {
-        const open = bar.classList.toggle("open");
-        toggle.setAttribute("aria-expanded", open ? "true" : "false");
-      },
-    });
-    more.append(
-      filterBoxButton("cat"),
-      filterBoxButton("law"),
-      filterBoxButton("area"),
-      filterBoxButton("type"),
-      filterBoxButton("county"),
-      filterBoxButton("scope"),
-      chip("FY from", select("from", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyFrom, setF("fyFrom"))),
-      chip("to", select("to", [["", "Any"], ...years.map((y) => [y, fmtFy(y)])], f.fyTo, setF("fyTo"))),
-      chip("Arithmetic", select("arith", [["", "Any"], ["yes", "Yes"], ["no", "No"]], f.arith, setF("arith"))),
-    );
-    bar.append(
-      chip("Search", searchInput("q", f.q, "jurisdiction, fee, label…", setF("q"))),
-      toggle,
-      more,
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: clearFilters }),
-      el("span", { class: "sep" }),
-      copyButton("Copy link", () => new URL(urlFor(), location.href).href),
-    );
+    const setQ = (v) => { state.filters.q = v; state.page = 1; update(); };
+    filterToolbar(bar, "figures", chip("Search", searchInput("q", state.filters.q, "jurisdiction, fee, label…", setQ)), [sep(), copyLinkButton()]);
   } else if (key === "entities") {
-    bar.append(
-      chip("Search", searchInput("eq", state.eq, "jurisdiction or county", (v) => { state.eq = v; update(); })),
-      chip("Type", select("etype", choices(model.types, entityTypeLabel), state.etype, (v) => { state.etype = v; update(); })),
-      chip("County", select("ecounty", choices(model.counties, (c) => c), state.ecounty, (v) => { state.ecounty = v; update(); })),
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.eq = ""; state.etype = ""; state.ecounty = ""; toolbarView = ""; update(); } }),
-    );
+    filterToolbar(bar, "entities", chip("Search", searchInput("eq", state.eq, "jurisdiction or county", (v) => { state.eq = v; update(); })));
   } else if (key === "fees") {
-    bar.append(
-      chip("Search", searchInput("fq", state.fq, "jurisdiction, fee, fund number", (v) => { state.fq = v; update(); })),
-      chip("Category", select("fcat", categoryChoices(), state.fcat, (v) => { state.fcat = v; update(); })),
-      chip("Type", select("ftype", choices(model.types, entityTypeLabel), state.ftype, (v) => { state.ftype = v; update(); })),
-      chip("County", select("fcounty", choices(model.counties, (c) => c), state.fcounty, (v) => { state.fcounty = v; update(); })),
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = ""; state.fentity = ""; toolbarView = ""; update(); } }),
-    );
+    filterToolbar(bar, "fees", chip("Search", searchInput("fq", state.fq, "jurisdiction, fee, fund number", (v) => { state.fq = v; update(); })));
   } else if (key === "sources") {
-    bar.append(
-      chip("Search", searchInput("sq", state.sq, "agency, title, source id, fiscal year", (v) => { state.sq = v; update(); })),
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => { state.sq = ""; state.sentity = ""; toolbarView = ""; update(); } }),
-    );
+    filterToolbar(bar, "sources", chip("Search", searchInput("sq", state.sq, "agency, title, source id, fiscal year", (v) => { state.sq = v; update(); })));
   } else if (key === "coverage") {
-    const d = coverageData;
-    const set = (k, rebuild = false) => (v) => { state[k] = v; state.cpage = 1; if (rebuild) toolbarView = ""; update(); };
-    bar.append(
-      chip("Class", select("ccls", [["", "All"], ...(d?.classes || []).map((c) => [c.key, c.label])], state.ccls, (v) => { state.ctype = ""; set("ccls", true)(v); })),
-      chip("Type", select("ctype", [["", "All"], ...coverageTypes(d)], state.ctype, set("ctype"))),
-      chip("County", select("ccounty", [["", "All"], ...coverageCounties(d)], state.ccounty, set("ccounty"))),
-      chip("Search", searchInput("cq", state.cq, "jurisdiction or county", set("cq"))),
-      chip("Status", select("cstat", COVERAGE_STATUSES, state.cstat, set("cstat"))),
-      el("button", { class: "btn", type: "button", text: "Clear", onclick: () => setCoverage({ ccls: "", ctype: "", ccounty: "", cq: "", cstat: "" }, false) }),
-      el("span", { class: "sep" }),
-      copyButton("Copy link", () => new URL(urlFor(), location.href).href),
-      coverageYearsToggle(),
-    );
+    filterToolbar(bar, "coverage", chip("Search", searchInput("cq", state.cq, "jurisdiction or county", (v) => { state.cq = v; state.cpage = 1; update(); })),
+      [sep(), copyLinkButton(), coverageYearsToggle()]);
+  } else if (key === "districts") {
+    bar.append(chamberSwitch(), sep(), copyLinkButton());
   } else if (key === "permits") {
     bar.append(...permitsToolbar(permitsCtx()));
   }
@@ -767,224 +1083,15 @@ function renderToolbar() {
 
 function syncToolbar() {
   const set = (id, v) => { const n = $(id); if (n && n !== document.activeElement && n.value !== v) n.value = v; };
-  const f = state.filters;
-  set("q", f.q);
-  for (const b of document.querySelectorAll(".fbox-btn[data-key]")) setFilterBoxText(b);
-  set("from", f.fyFrom); set("to", f.fyTo); set("arith", f.arith);
-  set("eq", state.eq); set("etype", state.etype); set("ecounty", state.ecounty);
+  set("q", state.filters.q);
+  set("eq", state.eq);
   set("sq", state.sq);
-  set("fq", state.fq); set("fcat", state.fcat); set("ftype", state.ftype); set("fcounty", state.fcounty);
+  set("fq", state.fq);
+  set("cq", state.cq);
+  refreshFilterBoxes();
   for (const b of document.querySelectorAll(".cov-years-toggle [data-cyr]")) b.setAttribute("aria-pressed", b.dataset.cyr === state.cyr ? "true" : "false");
-  set("ccls", state.ccls); set("ctype", state.ctype); set("ccounty", state.ccounty); set("cq", state.cq); set("cstat", state.cstat);
+  for (const b of document.querySelectorAll(".chamber-switch [data-dch]")) b.setAttribute("aria-pressed", b.dataset.dch === state.dch ? "true" : "false");
   syncPermitsToolbar(state);
-}
-
-function clearFilters() {
-  state.filters = { ...EMPTY_FILTERS };
-  state.page = 1;
-  toolbarView = "";
-  update();
-}
-
-// ------------------------------------------------------------ FILTER BOXES
-
-// One box per field, patterned on the column filters of aimesy/sfsc and
-// tentatives: tick any number of values (any of them matches; different
-// boxes must all match), with each value's count among the figures the other
-// filters leave. Category is a tree: a namespace ticks everything under it.
-const FILTER_BOXES = {
-  cat: { label: "Category", value: (f) => f.cat, text: categoryLabel, tree: true },
-  law: { label: "Law", value: (f) => f.law, text: lawLabel },
-  area: { label: "Area", value: (f) => f.area, text: areaLabel },
-  type: { label: "Type", value: (f) => f.primary.entity_type, text: entityTypeLabel },
-  county: { label: "County", value: (f) => f.primary.county, text: (c) => c },
-  scope: { label: "Land use", value: (f) => scopeKey(f.primary.land_use_scope), text: scopeLabel },
-  entity: { label: "Jurisdiction", value: (f) => f.entity, text: (v) => v, many: true },
-};
-
-function boxValueText(key, v) {
-  if (v === NONE) return key === "cat" || key === "law" || key === "area" ? NOT_CLASSIFIED : "(not recorded)";
-  if (key === "cat") return categoryLabel(v.includes("/") ? v : `${v}/`);
-  return FILTER_BOXES[key].text(v);
-}
-
-function boxSummary(key, raw) {
-  const vals = splitChoice(raw);
-  return vals.length <= 2 ? vals.map((v) => boxValueText(key, v)).join(" or ") : `${vals.length} values`;
-}
-
-function filterBoxButton(key) {
-  const b = el("button", {
-    type: "button", class: "btn fbox-btn", dataset: { key }, "aria-haspopup": "dialog",
-    onclick: (e) => { e.stopPropagation(); openFilterBox(key, e.currentTarget); },
-  });
-  setFilterBoxText(b);
-  return el("span", { class: "chip" }, b);
-}
-
-function setFilterBoxText(b) {
-  const key = b.dataset.key;
-  const raw = state.filters[key];
-  b.textContent = `${FILTER_BOXES[key].label}: ${raw ? boxSummary(key, raw) : "All"} ▾`;
-  b.classList.toggle("active", Boolean(raw));
-}
-
-function categoryChoices() {
-  const out = [["", "All"]];
-  for (const [ns, label, subs] of NAMESPACES) {
-    if (!model.fees.some((f) => (f.cat || "").split("/")[0] === ns)) continue;
-    out.push([ns, label]);
-    for (const [sub, sl] of subs) if (model.fees.some((f) => f.cat === `${ns}/${sub}`)) out.push([`${ns}/${sub}`, `${label} › ${sl}`]);
-  }
-  if (model.fees.some((f) => !f.cat)) out.push([NONE, NOT_CLASSIFIED]);
-  return out;
-}
-
-function boxOptions(key) {
-  const box = FILTER_BOXES[key];
-  const figs = filterFigures(model.figures, { ...state.filters, [key]: "" });
-  const counts = new Map();
-  for (const f of figs) {
-    const v = box.value(f) || "";
-    counts.set(v, (counts.get(v) || 0) + 1);
-  }
-  if (box.tree) return categoryTree(counts);
-  return [...counts].map(([v, count]) => ({ value: v || NONE, label: boxValueText(key, v || NONE), count, children: [] }));
-}
-
-let openBox = null;
-
-function closeFilterBox() {
-  if (!openBox) return;
-  openBox.pop.remove();
-  document.removeEventListener("mousedown", openBox.outside, true);
-  openBox.anchor.focus?.();
-  openBox = null;
-}
-
-function openFilterBox(key, anchor) {
-  const reopen = openBox?.key === key;
-  closeFilterBox();
-  if (reopen) return;
-  const box = FILTER_BOXES[key];
-  const options = boxOptions(key);
-  const leaves = options.flatMap((o) => (o.children.length ? o.children : [o]));
-  const current = new Set(splitChoice(state.filters[key]));
-  // Nothing chosen means everything shown: start with every value ticked,
-  // except in a long list (jurisdictions), which starts empty for searching.
-  const selected = new Set();
-  for (const o of options) {
-    for (const leaf of o.children.length ? o.children : [o]) {
-      const on = current.has(leaf.value) || current.has(o.value) || (box.tree && current.has(`${o.value}/`));
-      if (current.size ? on : !box.many) selected.add(leaf.value);
-    }
-  }
-  let sortMode = box.tree ? "tree" : box.many ? "az" : "count";
-  let search = "";
-
-  const list = el("div", { class: "cf-list", role: "group", "aria-label": `${box.label} values` });
-  const sortBtn = (mode, text) => el("button", {
-    type: "button", class: mode === sortMode ? "active" : "", text,
-    onclick: (e) => { sortMode = mode; for (const b of e.currentTarget.parentNode.children) b.classList.toggle("active", b === e.currentTarget); renderList(); },
-  });
-  const searchBox = el("input", {
-    class: "cf-search", type: "search", placeholder: box.many ? "Type to search, then tick…" : "Search values…",
-    "aria-label": `Search ${box.label} values`, oninput: (e) => { search = e.target.value.toLowerCase(); renderList(); },
-  });
-  const apply = el("button", { type: "button", class: "cf-apply", text: "Apply", onclick: () => {
-    let vals;
-    if (box.tree) {
-      vals = [];
-      for (const o of options) {
-        const kids = o.children.length ? o.children : [o];
-        const on = kids.filter((c) => selected.has(c.value));
-        if (on.length === kids.length) vals.push(o.value);
-        else vals.push(...on.map((c) => c.value));
-      }
-    } else vals = leaves.filter((o) => selected.has(o.value)).map((o) => o.value);
-    const all = !box.many && vals.length === options.length;
-    state.filters[key] = all || !vals.length ? "" : vals.join(SEP);
-    state.page = 1;
-    closeFilterBox();
-    update();
-  } });
-  const pop = el("div", { class: "col-filter-pop open", role: "dialog", "aria-label": `Filter by ${box.label}` },
-    el("div", { class: "cf-title", text: `Filter · ${box.label}` }),
-    box.tree ? null : el("div", { class: "cf-sort" }, sortBtn("az", "A to Z"), sortBtn("za", "Z to A"), sortBtn("count", "By count")),
-    searchBox,
-    list,
-    el("div", { class: "cf-actions" },
-      apply,
-      el("button", { type: "button", class: "cf-clear", text: "Clear", onclick: () => { state.filters[key] = ""; state.page = 1; closeFilterBox(); update(); } }),
-      el("button", { type: "button", class: "cf-cancel", text: "Cancel", onclick: closeFilterBox })),
-  );
-
-  const row = (o, cls, onChange, checked, indeterminate = false) => {
-    const cb = el("input", { type: "checkbox", onchange: onChange });
-    cb.checked = checked;
-    cb.indeterminate = indeterminate;
-    return el("label", { class: `cf-row ${cls}` }, cb,
-      el("span", { class: "cf-label", title: o.label, text: o.label }),
-      el("span", { class: "cf-count", text: fmtInt(o.count) }));
-  };
-
-  function visible(o) {
-    return !search || o.label.toLowerCase().includes(search) || o.children.some((c) => c.label.toLowerCase().includes(search));
-  }
-
-  function renderList() {
-    let view = options.filter(visible);
-    if (sortMode === "az") view.sort((a, b) => a.label.localeCompare(b.label));
-    else if (sortMode === "za") view.sort((a, b) => b.label.localeCompare(a.label));
-    else if (sortMode === "count") view.sort((a, b) => b.count - a.count);
-    if (box.many && !search) view = view.filter((o) => selected.has(o.value));
-    const nodes = [];
-    if (box.many && view.length > 200) {
-      nodes.push(el("div", { class: "cf-empty", text: `Showing 200 of ${fmtInt(view.length)}; type more to narrow.` }));
-      view = view.slice(0, 200);
-    }
-    const shown = view.flatMap((o) => (o.children.length ? o.children : [o]));
-    if (!view.length) {
-      nodes.push(el("div", { class: "cf-empty", text: box.many && !search ? "Type a name, then tick." : "No matching values." }));
-    } else {
-      const allOn = shown.every((o) => selected.has(o.value));
-      nodes.push(row({ label: search || box.many ? "(Select all shown)" : "(Select all)", count: shown.reduce((n, o) => n + o.count, 0) }, "cf-all", (e) => {
-        for (const o of shown) e.target.checked ? selected.add(o.value) : selected.delete(o.value);
-        renderList();
-      }, allOn));
-      for (const o of view) {
-        if (o.children.length) {
-          const on = o.children.filter((c) => selected.has(c.value)).length;
-          nodes.push(row(o, "cf-ns", (e) => {
-            for (const c of o.children) e.target.checked ? selected.add(c.value) : selected.delete(c.value);
-            renderList();
-          }, on === o.children.length, on > 0 && on < o.children.length));
-          for (const c of o.children) {
-            nodes.push(row(c, "cf-sub", (e) => { e.target.checked ? selected.add(c.value) : selected.delete(c.value); renderList(); }, selected.has(c.value)));
-          }
-        } else {
-          nodes.push(row(o, box.tree ? "cf-ns" : "", (e) => { e.target.checked ? selected.add(o.value) : selected.delete(o.value); renderList(); }, selected.has(o.value)));
-        }
-      }
-    }
-    list.replaceChildren(...nodes);
-    apply.disabled = !box.many && selected.size === 0;
-  }
-  renderList();
-
-  document.body.append(pop);
-  const r = anchor.getBoundingClientRect();
-  const w = pop.offsetWidth || 300;
-  pop.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left + window.scrollX - 8))}px`;
-  pop.style.top = `${r.bottom + window.scrollY + 4}px`;
-  const outside = (e) => { if (!pop.contains(e.target) && e.target !== anchor) closeFilterBox(); };
-  document.addEventListener("mousedown", outside, true);
-  pop.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.stopPropagation(); closeFilterBox(); }
-    if (e.key === "Enter" && e.target.tagName === "INPUT" && !apply.disabled) apply.click();
-  });
-  openBox = { key, pop, anchor, outside };
-  searchBox.focus();
 }
 
 // ============================================================ RENDER
@@ -999,13 +1106,16 @@ let panelKey = "";
 
 function renderAll() {
   if (!model) return;
+  // A render redraws what an open box counts and where it sits.
+  closeFilterBox({ focus: false });
   renderTabs();
   renderToolbar();
-  const ck = JSON.stringify([state.view, state.filters, state.sort, state.page, state.pageSize, state.entity,
-    state.eq, state.etype, state.ecounty, state.esort, state.sq, state.sentity, state.ssort,
+  const ck = JSON.stringify([state.view, state.filters, state.sort, state.page, state.pageSize, state.entity, state.ad, state.sd, Boolean(districts),
+    state.eq, state.etype, state.ecounty, state.esort, state.sq, state.sentity, state.stype, state.sfy, state.ssort,
     state.fee, state.fq, state.fcat, state.ftype, state.fcounty, state.fentity, state.fsort,
     state.cyr, state.ccls, state.ctype, state.ccounty, state.cq, state.cstat, state.csort, state.cpage,
-    state.fa, state.sc, permitsKey(state.permits)]);
+    state.dch, state.dn, state.dsort, state.dpsort,
+    state.fa, state.facounty, state.fatype, state.sc, permitsKey(state.permits)]);
   if (ck !== contentKey) {
     contentKey = ck;
     renderContent();
@@ -1017,6 +1127,7 @@ function renderAll() {
 function renderContent() {
   const content = $("content");
   content.replaceChildren();
+  if (districtGate(content)) return;
   if (state.view === "figures") renderFigures(content);
   else if (state.view === "entities") {
     if (state.entity) renderEntityDossier(content);
@@ -1029,15 +1140,24 @@ function renderContent() {
   else if (state.view === "schedules") renderSchedulesTab(content);
   else if (state.view === "permits") renderPermits(content, permitsCtx());
   else if (state.view === "coverage") renderCoverage(content);
+  else if (state.view === "districts") renderDistricts(content);
   else renderStatsView(content);
 }
 
 function currentFigures() {
-  const key = JSON.stringify([state.filters, state.sort]);
+  const key = JSON.stringify([state.filters, state.sort, state.ad, state.sd, Boolean(districts)]);
   if (listCache.key !== key) {
-    listCache = { key, list: sortFigures(filterFigures(model.figures, state.filters), state.sort) };
+    listCache = { key, list: sortFigures(figureRows(TABS.figures.filter()), state.sort) };
   }
   return listCache.list;
+}
+
+// Figures under a filter object: lib/model.js's filters, then the fiscal
+// years and the districts, which it does not know.
+function figureRows(f) {
+  const inDistricts = districtTest(f);
+  return filterFigures(model.figures, { ...f, fyFrom: "", fyTo: "" })
+    .filter((fig) => (!f.fy || matchesChoice(f.fy, fig.fy)) && (!inDistricts || inDistricts(...releaseWhere(fig.entity))));
 }
 
 function filterTag(label, onRemove) {
@@ -1045,31 +1165,82 @@ function filterTag(label, onRemove) {
     el("button", { type: "button", "aria-label": `Remove filter ${label}`, title: "Remove filter", text: "×", onclick: onRemove }));
 }
 
-function activeFilterTags() {
-  const f = state.filters;
+// One tag for each box in use, in the tab's order, then the districts.
+function boxTags(view) {
+  const tab = TABS[view];
+  const f = tab.filter();
   const tags = [];
-  const drop = (k) => () => { state.filters[k] = ""; state.page = 1; update(); };
-  if (f.entity) tags.push(filterTag(`Jurisdiction: ${boxSummary("entity", f.entity)}`, drop("entity")));
-  if (f.source) {
-    const s = model.sourceById.get(f.source);
-    tags.push(filterTag(`Source: ${s ? s.publication_title : f.source}`, drop("source")));
+  for (const k of tab.tags) {
+    const spec = boxSpec(view, k);
+    const raw = spec.get();
+    if (raw) tags.push(filterTag(`${spec.label}: ${boxSummary(spec, raw)}`, () => spec.apply("")));
   }
-  if (f.q) tags.push(filterTag(`“${f.q}”`, drop("q")));
-  for (const k of ["cat", "law", "area", "type", "county", "scope"]) {
-    if (f[k]) tags.push(filterTag(`${FILTER_BOXES[k].label}: ${boxSummary(k, f[k])}`, drop(k)));
+  for (const ch of CHAMBERS) {
+    if (f[ch]) tags.push(filterTag(`${CHAMBER[ch].box}: ${boxSummary(boxSpec(view, ch), f[ch])}`, () => setFilter(view, ch, "")));
   }
-  if (f.fyFrom || f.fyTo) tags.push(filterTag(`FY ${fmtFy(f.fyFrom) || "…"} to ${fmtFy(f.fyTo) || "…"}`, () => { state.filters.fyFrom = ""; state.filters.fyTo = ""; update(); }));
-  if (f.arith) tags.push(filterTag(`Arithmetic: ${f.arith === "yes" ? "yes" : "no"}`, drop("arith")));
   return tags;
 }
 
-function sumNote(summary) {
-  return el("span", { class: "sum", title: "Primary rows only" },
-    "sum ", el("strong", { text: fmtSum(summary.sum) }));
+function searchTag(q, onRemove) {
+  return q ? filterTag(`“${q}”`, onRemove) : null;
 }
 
-// filterKey adds the column's filter box (the ▾ beside its name).
-function sortHeader(label, col, sort, onSort, cls = "", filterKey = "") {
+// districts.json's caveat, short in its summary and whole once opened, so a
+// tap or the keyboard reaches it as well as a pointer. One element for every
+// place a district list or filter shows.
+const DISTRICT_APPROX = "A few agencies are placed by approximate boundaries and may be missing from some districts.";
+function districtCaveatBox(summary = "Agencies count in every district they touch") {
+  return el("details", { class: "district-caveat" },
+    el("summary", { text: summary }),
+    el("span", { class: "district-caveat-body", text: `${districtCaveat()} ${DISTRICT_APPROX}` }));
+}
+
+function districtNote() {
+  if (!state.ad && !state.sd) return null;
+  return districtCaveatBox();
+}
+
+// Districts and Stats do not apply the district filter. While one is set
+// they say so, show its tags and offer Clear, so it is never carried unseen.
+function districtElsewhereNote(what) {
+  if (!state.ad && !state.sd) return null;
+  const words = districtFilterWords().map((w) => w.value).join("; ");
+  return el("div", { class: "district-elsewhere", role: "note" },
+    el("span", { text: `${what} The district filter (${words}) applies on the other tabs.` }),
+    el("span", { class: "active-filters" }, districtTags()),
+    el("button", { class: "btn", type: "button", text: "Clear district filter", onclick: () => { state.ad = ""; state.sd = ""; resetPages(); update(); } }));
+}
+
+function activeFilterTags() {
+  const f = state.filters;
+  const drop = (k) => () => setFilter("figures", k, "");
+  const s = f.source ? model.sourceById.get(f.source) : null;
+  return [
+    f.source ? filterTag(`Source: ${s ? s.publication_title : f.source}`, drop("source")) : null,
+    searchTag(f.q, drop("q")),
+    ...boxTags("figures"),
+  ].filter(Boolean);
+}
+
+// "12 of 1,234 figures" when filtered, "1,234 figures" when not.
+function countOf(n, total, noun, filtered, plural = `${noun}s`) {
+  return [el("strong", { text: fmtInt(n) }), filtered && total !== undefined ? ` of ${fmtInt(total)} ${total === 1 ? noun : plural}` : ` ${n === 1 ? noun : plural}`];
+}
+
+// Under a district filter a sum adds whole agencies, each counted in every
+// district it touches, so it is labelled as such.
+function sumNote(summary) {
+  const districted = Boolean(state.ad || state.sd);
+  return el("span", {
+    class: "sum",
+    title: districted ? "Primary rows only. Each agency's whole total, counted in every district it touches, so district totals overlap." : "Primary rows only",
+  }, districted ? "whole-agency sum " : "sum ", el("strong", { text: fmtSum(summary.sum) }));
+}
+
+// filter adds the column's filter box (the ▾ beside its name): a spec from
+// lib/filter-box.js, or the key of one of the current tab's boxes.
+function sortHeader(label, col, sort, onSort, cls = "", filter = null) {
+  const spec = typeof filter === "string" ? (filter && TABS[state.view] ? boxSpec(state.view, filter) : null) : filter;
   const active = sort.col === col;
   const th = el("th", {
     class: `sortable ${cls} ${active ? `sort-${sort.dir}` : ""}`,
@@ -1077,12 +1248,7 @@ function sortHeader(label, col, sort, onSort, cls = "", filterKey = "") {
     "aria-sort": active ? (sort.dir === "asc" ? "ascending" : "descending") : "none",
   }, el("span", { class: "col-head" },
     el("button", { type: "button", class: "th-btn", onclick: () => onSort(col) }, el("span", { class: "col-label", text: label })),
-    filterKey ? el("button", {
-      type: "button", class: `col-filter-btn${state.filters[filterKey] ? " active" : ""}`, text: "▾",
-      title: `Filter by ${FILTER_BOXES[filterKey].label}`, "aria-label": `Filter by ${FILTER_BOXES[filterKey].label}`,
-      "aria-haspopup": "dialog",
-      onclick: (e) => { e.stopPropagation(); openFilterBox(filterKey, e.currentTarget); },
-    }) : null));
+    spec ? colFilterButton(spec) : null));
   return th;
 }
 
@@ -1104,10 +1270,11 @@ function renderFigures(content) {
   const summary = summarize(list);
 
   const bar = el("div", { class: "result-bar" },
-    el("span", { class: "count" }, el("strong", { text: fmtInt(summary.count) }), ` figure${summary.count === 1 ? "" : "s"} · ${fmtInt(summary.entities)} jurisdiction${summary.entities === 1 ? "" : "s"}`,
+    el("span", { class: "count" }, countOf(summary.count, model.figures.length, "figure", filtersActive(TABS.figures.filter())), ` · ${fmtInt(summary.entities)} jurisdiction${summary.entities === 1 ? "" : "s"}`,
       summary.firstYear ? ` · FY ${fmtFy(summary.firstYear)}${summary.lastYear !== summary.firstYear ? ` to ${fmtFy(summary.lastYear)}` : ""}` : ""),
     summary.count ? sumNote(summary) : null,
     el("span", { class: "active-filters" }, activeFilterTags()),
+    districtNote(),
   );
 
   const onSort = (col) => { state.sort = toggleSort(state.sort, col, NUMERIC_SORTS.has(col)); state.page = 1; update(); };
@@ -1115,7 +1282,7 @@ function renderFigures(content) {
   const table = el("table", { class: "grid figures-grid" },
     el("thead", {}, el("tr", {},
       sortHeader("Jurisdiction", "entity", s, onSort, "col-entity", "entity"),
-      sortHeader("FY", "fy", s, onSort, "col-fy"),
+      sortHeader("FY", "fy", s, onSort, "col-fy", "fy"),
       sortHeader("Fee program", "program", s, onSort, "col-program"),
       sortHeader("Category", "category", s, onSort, "col-cat", "cat"),
       sortHeader("Law", "law", s, onSort, "col-law", "law"),
@@ -1169,7 +1336,7 @@ function symbol(ch) {
 
 function showFiltered(filters) {
   state.view = "figures";
-  state.filters = { ...EMPTY_FILTERS, ...filters };
+  state.filters = { ...FIGURE_FILTERS, ...filters };
   state.page = 1;
   state.entity = "";
   state.figure = "";
@@ -1202,11 +1369,11 @@ function filterToEntity(name) {
     state.fq = ""; state.fcat = ""; state.ftype = ""; state.fcounty = "";
     state.fentity = name;
   } else if (state.view === "sources") {
-    state.sq = "";
+    state.sq = ""; state.stype = ""; state.sfy = "";
     state.sentity = name;
   } else {
     state.view = "figures";
-    state.filters = { ...EMPTY_FILTERS, entity: name };
+    state.filters = { ...FIGURE_FILTERS, entity: name };
     state.page = 1;
     state.entity = "";
   }
@@ -1246,10 +1413,6 @@ function entityCellClick(ev) {
   if (!a || ev.target.closest("a,button")) return false;
   a.click();
   return true;
-}
-
-function entityTag(name, onRemove) {
-  return el("span", { class: "active-filters" }, name ? filterTag(`Jurisdiction: ${name}`, onRemove) : null);
 }
 
 function scopeTag(code, named = false) {
@@ -1317,14 +1480,19 @@ function figureRow(fig, list) {
 
 // ------------------------------------------------------------ ENTITIES
 
-function entityRows() {
-  const q = state.eq.trim().toLowerCase();
-  let list = model.entities.filter((e) => {
-    if (state.etype && !matchesChoice(state.etype, e.type)) return false;
-    if (state.ecounty && !matchesChoice(state.ecounty, e.county)) return false;
+function entityMatches(f) {
+  const q = (f.eq || "").trim().toLowerCase();
+  const inDistricts = districtTest(f);
+  return model.entities.filter((e) => {
+    if (f.etype && !matchesChoice(f.etype, e.type)) return false;
+    if (f.ecounty && !matchesChoice(f.ecounty, e.county)) return false;
     if (q && !`${e.name}\n${e.county}`.toLowerCase().includes(q)) return false;
-    return true;
+    return !inDistricts || inDistricts(...releaseWhere(e.name));
   });
+}
+
+function entityRows(f = TABS.entities.filter()) {
+  let list = entityMatches(f);
   const { col, dir } = state.esort;
   const d = dir === "asc" ? 1 : -1;
   const key = {
@@ -1364,13 +1532,15 @@ function renderEntities(content) {
   if (!list.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 9, text: "No jurisdiction matches." })));
   content.append(
     el("div", { class: "result-bar" },
-      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` jurisdiction${list.length === 1 ? "" : "s"} · ${fmtInt(figures)} figures`),
-      el("span", { class: "sum", title: "Primary rows only" }, "sum ", el("strong", { text: fmtSum(total) }))),
+      el("span", { class: "count" }, countOf(list.length, model.entities.length, "jurisdiction", filtersActive(TABS.entities.filter())), ` · ${fmtInt(figures)} figures`),
+      sumNote({ sum: total }),
+      el("span", { class: "active-filters" }, searchTag(state.eq, () => setFilter("entities", "eq", "")), boxTags("entities")),
+      districtNote()),
     el("div", { class: "table-scroll" }, el("table", { class: "grid entities-grid" },
       el("thead", {}, el("tr", {},
         sortHeader("Jurisdiction", "name", s, onSort, "col-entity"),
-        sortHeader("Type", "type", s, onSort),
-        sortHeader("County", "county", s, onSort),
+        sortHeader("Type", "type", s, onSort, "", "etype"),
+        sortHeader("County", "county", s, onSort, "", "ecounty"),
         el("th", { scope: "col", class: "col-years" }, el("span", { class: "col-label", text: "Fiscal years" })),
         sortHeader("Years", "years", s, onSort, "num"),
         sortHeader("Figures", "figures", s, onSort, "num"),
@@ -1414,11 +1584,12 @@ function renderEntityDossier(content) {
     el("div", { class: "dossier-meta" },
       [entityTypeLabel(e.type), e.county ? `${e.county} County` : "", `${fmtInt(e.figures.length)} figures`, `${fmtInt(e.fees.size)} fees`, `${fmtInt(e.sources.size)} reports`, `FY ${fyRanges(e.yearList)}`]
         .filter(Boolean).map((t) => el("span", { text: t }))),
+    districtLines(...releaseWhere(e.name)),
     el("div", { class: "dossier-actions" },
       el("a", { class: "btn", href: figuresHref({ entity: e.name, sort: "fy.asc" }), onclick: (ev) => {
         ev.preventDefault();
         state.view = "figures";
-        state.filters = { ...EMPTY_FILTERS, entity: e.name };
+        state.filters = { ...FIGURE_FILTERS, entity: e.name };
         state.sort = { col: "fy", dir: "asc" };
         state.page = 1;
         state.entity = "";
@@ -1494,16 +1665,22 @@ function feeLink(fee, text = fee.label) {
   return el("a", { href: feeHref(fee), text, onclick: (ev) => { ev.preventDefault(); ev.stopPropagation(); openFee(fee); } });
 }
 
-function feeRows() {
-  const terms = searchTerms(state.fq);
-  let list = model.fees.filter((f) => {
-    const p = f.figures[f.figures.length - 1].primary;
-    if (state.fentity && f.entity !== state.fentity) return false;
-    if (state.fcat && !matchesCategory(state.fcat, f.cat)) return false;
-    if (state.ftype && !matchesChoice(state.ftype, p.entity_type)) return false;
-    if (state.fcounty && !matchesChoice(state.fcounty, p.county)) return false;
-    return terms.every((t) => f.search.includes(t));
+function feeMatches(q) {
+  const terms = searchTerms(q.fq);
+  const inDistricts = districtTest(q);
+  return model.fees.filter((f) => {
+    const p = latestPrimary(f);
+    if (q.fentity && !matchesChoice(q.fentity, f.entity)) return false;
+    if (q.fcat && !matchesCategory(q.fcat, f.cat)) return false;
+    if (q.ftype && !matchesChoice(q.ftype, p.entity_type)) return false;
+    if (q.fcounty && !matchesChoice(q.fcounty, p.county)) return false;
+    if (!terms.every((t) => f.search.includes(t))) return false;
+    return !inDistricts || inDistricts(...releaseWhere(f.entity));
   });
+}
+
+function feeRows(q = TABS.fees.filter()) {
+  let list = feeMatches(q);
   const { col, dir } = state.fsort;
   const d = dir === "asc" ? 1 : -1;
   const key = {
@@ -1540,14 +1717,15 @@ function renderFees(content) {
   if (!list.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 7, text: "No fee matches." })));
   content.append(
     el("div", { class: "result-bar" },
-      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` fee${list.length === 1 ? "" : "s"} · ${fmtInt(entities)} jurisdiction${entities === 1 ? "" : "s"}`),
-      el("span", { class: "sum", title: "Primary rows only" }, "sum ", el("strong", { text: fmtSum(total) })),
-      entityTag(state.fentity, () => { state.fentity = ""; update(); })),
+      el("span", { class: "count" }, countOf(list.length, model.fees.length, "fee", filtersActive(TABS.fees.filter())), ` · ${fmtInt(entities)} jurisdiction${entities === 1 ? "" : "s"}`),
+      sumNote({ sum: total }),
+      el("span", { class: "active-filters" }, searchTag(state.fq, () => setFilter("fees", "fq", "")), boxTags("fees")),
+      districtNote()),
     el("div", { class: "table-scroll" }, el("table", { class: "grid fees-grid" },
       el("thead", {}, el("tr", {},
-        sortHeader("Jurisdiction", "entity", s, onSort, "col-entity"),
+        sortHeader("Jurisdiction", "entity", s, onSort, "col-entity", "fentity"),
         sortHeader("Fee", "fee", s, onSort, "col-fee"),
-        sortHeader("Category", "category", s, onSort),
+        sortHeader("Category", "category", s, onSort, "", "fcat"),
         sortHeader("Fiscal years", "last", s, onSort, "col-years"),
         sortHeader("Years", "years", s, onSort, "num"),
         sortHeader("Figures", "figures", s, onSort, "num"),
@@ -1593,6 +1771,7 @@ function renderFeePage(content) {
       el("span", {}, el("a", { href: entityHref(fee.entity), onclick: (ev) => { ev.preventDefault(); openEntity(fee.entity); }, text: fee.entity })),
       [categoryLabel(fee.cat), `FY ${fyRanges(fee.yearList)}`, `${fmtInt(fee.figures.length)} figures`, `${fmtInt(fee.sources.size)} reports`, `sum ${fmtSum(fee.sum)}`]
         .filter(Boolean).map((t) => el("span", { text: t }))),
+    districtLines(...releaseWhere(fee.entity)),
     el("div", { class: "dossier-actions" }, copyButton("Copy link", () => new URL(urlFor(), location.href).href)),
   );
   const joinTo = new Map(fee.joins.map((j) => [j.to, j]));
@@ -1692,9 +1871,54 @@ function feeChart(fee, span) {
 
 // ------------------------------------------------------------ SOURCES
 
-function sourceRows() {
-  const q = state.sq.trim().toLowerCase();
-  let list = model.sources.filter((s) => (!state.sentity || s.receiving_entity === state.sentity) && (!q || s._search.includes(q)));
+// covers_fiscal_year is free text in the release ("2023-24; 2024-25",
+// ["2023-24"], "2023-2024"); the Covers box takes the fiscal years it names.
+const coversCache = new WeakMap();
+
+function coversYears(s) {
+  let v = coversCache.get(s);
+  if (!v) {
+    const text = String(s.covers_fiscal_year || "");
+    const found = [...text.matchAll(/\b(\d{4})-(\d{2}|\d{4})\b/g)]
+      .filter((m) => Number(m[2].slice(-2)) === (Number(m[1]) + 1) % 100)
+      .map((m) => `${m[1]}-${m[2].slice(-2)}`);
+    // A report kept on a calendar year names it alone ("2024", "2003;2004"),
+    // as the Figures fiscal year box lists it; a range or a date is not one.
+    const calendar = [...text.matchAll(/(?<!\d[-/])\b((?:19|20)\d{2})\b(?![-/]\d)/g)].map((m) => m[1]);
+    v = [...new Set([...found, ...calendar])].sort();
+    coversCache.set(s, v);
+  }
+  return v;
+}
+
+function coversMatch(want, s) {
+  const set = new Set(splitChoice(want));
+  const years = coversYears(s);
+  return years.length ? years.some((y) => set.has(y)) : set.has(NONE);
+}
+
+// The Publication type box keys on the label the table shows, since many
+// release codes share one label. A code in the address reads as its label.
+function sourceType(s) {
+  return publicationTypeLabel(s.publication_type);
+}
+
+function sourceTypeNorm(v) {
+  return v !== NONE && /^[a-z0-9_]+$/.test(v) ? publicationTypeLabel(v) : v;
+}
+
+function sourceMatches(f) {
+  const q = (f.sq || "").trim().toLowerCase();
+  const inDistricts = districtTest(f);
+  return model.sources.filter((s) => (!f.sentity || matchesChoice(f.sentity, s.receiving_entity)) &&
+    (!f.stype || matchesChoice(f.stype, sourceType(s))) &&
+    (!f.sfy || coversMatch(f.sfy, s)) &&
+    (!q || s._search.includes(q)) &&
+    (!inDistricts || inDistricts(...releaseWhere(s.receiving_entity))));
+}
+
+function sourceRows(f = TABS.sources.filter()) {
+  let list = sourceMatches(f);
   const { col, dir } = state.ssort;
   const d = dir === "asc" ? 1 : -1;
   const key = {
@@ -1713,7 +1937,7 @@ function sourceRows() {
 function sourcesTable(list, { compact = false, sortable = false } = {}) {
   const s = state.ssort;
   const onSort = (col) => { state.ssort = toggleSort(state.ssort, col, NUMERIC_SORTS.has(col)); update(); };
-  const th = (label, col, cls = "") => (sortable ? sortHeader(label, col, s, onSort, cls) : el("th", { scope: "col", class: cls }, el("span", { class: "col-label", text: label })));
+  const th = (label, col, cls = "", filter = "") => (sortable ? sortHeader(label, col, s, onSort, cls, filter && boxSpec("sources", filter)) : el("th", { scope: "col", class: cls }, el("span", { class: "col-label", text: label })));
   const body = el("tbody");
   for (const src of list) {
     const off = officialUrl(src.official_source_url);
@@ -1742,10 +1966,10 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
   if (!list.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: compact ? 7 : 8, text: "No source matches." })));
   return el("div", { class: "table-scroll" }, el("table", { class: `grid sources-grid ${compact ? "compact" : ""}` },
     el("thead", {}, el("tr", {},
-      compact ? null : th("Agency", "agency", "col-entity"),
+      compact ? null : th("Agency", "agency", "col-entity", "sentity"),
       th("Publication", "title", "col-title"),
-      th("Type", "type", "col-type"),
-      th("Covers", "fy", "col-fy"),
+      th("Type", "type", "col-type", "stype"),
+      th("Covers", "fy", "col-fy", "sfy"),
       th("Pages", "pages", "num"),
       th("Size", "bytes", "num"),
       th("Figures", "figures", "num"),
@@ -1755,7 +1979,7 @@ function sourcesTable(list, { compact = false, sortable = false } = {}) {
 
 function showSourceFigures(sourceId) {
   state.view = "figures";
-  state.filters = { ...EMPTY_FILTERS, source: sourceId };
+  state.filters = { ...FIGURE_FILTERS, source: sourceId };
   state.sort = { col: "page", dir: "asc" };
   state.page = 1;
   state.entity = "";
@@ -1767,8 +1991,9 @@ function renderSources(content) {
   const pages = list.reduce((s, x) => s + (x._pages || 0), 0);
   content.append(
     el("div", { class: "result-bar" },
-      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` publication${list.length === 1 ? "" : "s"} · ${fmtInt(pages)} pages`),
-      entityTag(state.sentity, () => { state.sentity = ""; update(); })),
+      el("span", { class: "count" }, countOf(list.length, model.sources.length, "publication", filtersActive(TABS.sources.filter())), ` · ${fmtInt(pages)} pages`),
+      el("span", { class: "active-filters" }, searchTag(state.sq, () => setFilter("sources", "sq", "")), boxTags("sources")),
+      districtNote()),
     sourcesTable(list, { sortable: true }),
   );
 }
@@ -1783,6 +2008,7 @@ function renderStatsView(content) {
   const lastFy = model.years[model.years.length - 1];
   const basisStated = (f) => !["", "Not stated"].includes(basisLabel(f.primary.accounting_basis_source_read));
   content.append(el("div", { class: "stats-view" },
+    districtElsewhereNote("Stats cover the whole release, and their links open the other tabs under the filter."),
     el("div", { class: "tiles" },
       tile("Printed figures", fmtInt(figs.length)),
       tile("Data rows", fmtInt(model.rows.length)),
@@ -2072,6 +2298,15 @@ const COVERAGE_STATUSES = [
   ["done", "Every year processed"],
   ["nofee", "Charges no such fees"],
 ];
+const COVERAGE_STATUS_LABEL = new Map(COVERAGE_STATUSES.filter(([k]) => k));
+// h and p are the years harvested and processed, as bits within m.
+const COVERAGE_STATUS_TEST = {
+  none: (a, h) => !h && !a.nofee,
+  gaps: (a, h, p, m) => h !== m && !a.nofee,
+  waiting: (a, h, p) => (h & ~p) !== 0,
+  done: (a, h, p, m) => p === m,
+  nofee: (a) => a.nofee,
+};
 const COVERAGE_SORTS = ["name", "type", "county", "harvested", "processed"];
 const DEFAULT_COVERAGE_SORT = { col: "name", dir: "asc" };
 let coverageData = null;
@@ -2128,22 +2363,96 @@ function coverageYearsToggle() {
     pick("", `FY ${fmtFy(RECENT_FROM)} onward`), pick("all", "All years"));
 }
 
-function coverageTypes(d) {
-  if (!d) return [];
-  const types = new Set(d.agencies.filter((a) => !state.ccls || a.cls === state.ccls).map((a) => a.type));
-  return [...types].map((t) => [t || NONE, t ? humanize(t) : "(not recorded)"]).sort((a, b) => a[1].localeCompare(b[1]));
+// Every class and type pair on the roster: class order, types by name.
+let coveragePairs = { d: null, byClass: new Map() };
+
+function coverageTypePairs(d) {
+  if (coveragePairs.d !== d) {
+    const sets = new Map(d.classes.map((c) => [c.key, new Set()]));
+    for (const a of d.agencies) sets.get(a.cls)?.add(a.type || NONE);
+    const byClass = new Map([...sets].map(([cls, types]) => [cls, [...types].sort((x, y) => coverageTypeName(x).localeCompare(coverageTypeName(y)))]));
+    coveragePairs = { d, byClass };
+  }
+  return coveragePairs.byClass;
 }
 
-function coverageCounties(d) {
-  if (!d) return [];
-  return [...new Set(d.agencies.map((a) => a.county))].sort().map((c) => [c || NONE, c || "(not recorded)"]);
+const coverageTypeName = (t) => (t && t !== NONE ? humanize(t) : "(not recorded)");
+const coverageClassLabel = (k) => coverageData?.classes.find((c) => c.key === k)?.label || humanize(k);
+const coveragePair = (a) => `${a.cls}:${a.type || NONE}`;
+
+function coverageTypeText(v) {
+  const i = v.indexOf(":");
+  if (i > 0) return `${coverageClassLabel(v.slice(0, i))} › ${coverageTypeName(v.slice(i + 1))}`;
+  return COVERAGE_CLASSES.includes(v) ? coverageClassLabel(v) : coverageTypeName(v);
 }
 
-const choiceIs = (wanted, v) => !wanted || (wanted === NONE ? !v : v === wanted);
+// The Type box is one tree: classes (ccls) with their types under them
+// (ctype). A qualified type ("school:unified_school_district") adds to the
+// classes ticked whole; a plain type, as older links and the By agency type
+// table wrote it, narrows the classes instead (or the whole roster).
+function coverageTypeTest(f) {
+  const classes = new Set(splitChoice(f.ccls));
+  const types = splitChoice(f.ctype);
+  if (!classes.size && !types.length) return null;
+  const pairs = new Set(types.filter((t) => t.includes(":")));
+  const plain = new Set(types.filter((t) => !t.includes(":")));
+  return (a) => {
+    if (pairs.has(coveragePair(a))) return true;
+    if (plain.size) return (!classes.size || classes.has(a.cls)) && plain.has(a.type || NONE);
+    return classes.has(a.cls);
+  };
+}
 
-// The roster under the class, type and county filters, which every table uses.
-function coverageScope(d) {
-  return d.agencies.filter((a) => (!state.ccls || a.cls === state.ccls) && choiceIs(state.ctype, a.type) && choiceIs(state.ccounty, a.county));
+// The box's value in its own terms: classes ticked whole, then pairs. A
+// plain type becomes the pairs it selects.
+function coverageTypeRaw() {
+  const classes = splitChoice(state.ccls);
+  const types = splitChoice(state.ctype);
+  const plain = types.filter((t) => !t.includes(":"));
+  if (!plain.length || !coverageData) return [...classes, ...types].join(SEP);
+  const out = types.filter((t) => t.includes(":"));
+  for (const [cls, list] of coverageTypePairs(coverageData)) {
+    if (classes.length && !classes.includes(cls)) continue;
+    for (const t of list) if (plain.includes(t)) out.push(`${cls}:${t}`);
+  }
+  return [...new Set(out)].join(SEP);
+}
+
+function setCoverageTypes(raw) {
+  const parts = splitChoice(raw);
+  state.ccls = parts.filter((v) => COVERAGE_CLASSES.includes(v)).join(SEP);
+  state.ctype = parts.filter((v) => v.includes(":")).join(SEP);
+  resetPages();
+  update();
+}
+
+function coverageTypeOptions(rows) {
+  const counts = new Map();
+  for (const a of rows) counts.set(coveragePair(a), (counts.get(coveragePair(a)) || 0) + 1);
+  const out = [];
+  for (const [cls, types] of coverageTypePairs(coverageData)) {
+    const children = types.filter((t) => counts.get(`${cls}:${t}`))
+      .map((t) => ({ value: `${cls}:${t}`, label: coverageTypeName(t), count: counts.get(`${cls}:${t}`) }));
+    if (children.length) out.push({ value: cls, label: coverageClassLabel(cls), count: children.reduce((n, c) => n + c.count, 0), children });
+  }
+  return out;
+}
+
+// The roster under the type, county and district filters, which every
+// table uses; the status and the search narrow only the list.
+function coverageScope(d, f = TABS.coverage.filter()) {
+  const typeOk = coverageTypeTest(f);
+  const inDistricts = districtTest(f);
+  return d.agencies.filter((a) => (!typeOk || typeOk(a)) && (!f.ccounty || matchesChoice(f.ccounty, a.county)) &&
+    (!inDistricts || inDistricts(a.name, { type: a.type, county: a.county })));
+}
+
+// The classes the type filter leaves any part of.
+function coverageClasses(d, f = TABS.coverage.filter()) {
+  const typeOk = coverageTypeTest(f);
+  if (!typeOk) return d.classes;
+  const pairs = coverageTypePairs(d);
+  return d.classes.filter((c) => (pairs.get(c.key) || []).some((t) => typeOk({ cls: c.key, type: t === NONE ? "" : t })));
 }
 
 // Harvested and processed counts, plus the share each bar fills in yellow:
@@ -2259,8 +2568,8 @@ function coverageYearTable(d, list, m) {
 }
 
 // Groups of the scope by key, largest first (or by name), each labelled with
-// a link that narrows the tab to it.
-function coverageGroups(list, key, label, param, byName = false) {
+// a link that narrows the tab to it. params(k, items) is that link's change.
+function coverageGroups(list, key, label, params, byName = false) {
   const groups = new Map();
   for (const a of list) {
     const k = key(a) || "";
@@ -2269,8 +2578,12 @@ function coverageGroups(list, key, label, param, byName = false) {
   }
   return [...groups.entries()]
     .sort((x, y) => (byName ? 0 : y[1].length - x[1].length) || label(x[0]).localeCompare(label(y[0])))
-    .map(([k, items]) => ({ label: coverageLink(label(k), { [param]: k || NONE }), list: items }));
+    .map(([k, items]) => ({ label: coverageLink(label(k), params(k, items)), list: items }));
 }
+
+// A type row narrows to the class and type pairs it holds, so it never
+// widens a type filter already set.
+const coveragePairsOf = (items) => ({ ccls: "", ctype: [...new Set(items.map(coveragePair))].join(SEP) });
 
 function setCoverage(params, push = true) {
   Object.assign(state, params, { cpage: 1 });
@@ -2281,26 +2594,38 @@ function setCoverage(params, push = true) {
 
 function coverageLink(text, params) {
   return el("a", {
-    href: hrefWith({ view: "coverage", cyr: state.cyr, ccls: state.ccls, ctype: state.ctype, ccounty: state.ccounty, ...params }), text,
+    href: hrefWith({ view: "coverage", cyr: state.cyr, ccls: state.ccls, ctype: state.ctype, ccounty: state.ccounty, cq: state.cq, cstat: state.cstat, ...params }), text,
     onclick: (ev) => { ev.preventDefault(); setCoverage(params); },
   });
 }
 
-function coverageStatus(a, m) {
+// Any status ticked matches.
+function coverageStatus(a, m, f) {
+  const want = splitChoice(f.cstat);
+  if (!want.length) return true;
   const h = a.h & m;
   const p = a.p & m;
-  if (state.cstat === "none") return !h && !a.nofee;
-  if (state.cstat === "gaps") return h !== m && !a.nofee;
-  if (state.cstat === "waiting") return (h & ~p) !== 0;
-  if (state.cstat === "done") return p === m;
-  if (state.cstat === "nofee") return a.nofee;
-  return true;
+  return want.some((k) => COVERAGE_STATUS_TEST[k]?.(a, h, p, m));
 }
 
-function coverageRows(scope, m) {
-  const terms = searchTerms(state.cq);
-  const list = scope.filter((a) => coverageStatus(a, m) &&
+// The list's rows: the scope under the status and the search.
+function coverageMatches(d, f = TABS.coverage.filter()) {
+  const m = coverageMask(d);
+  const terms = searchTerms(f.cq);
+  return coverageScope(d, f).filter((a) => coverageStatus(a, m, f) &&
     terms.every((t) => `${a.name} ${a.county} ${a.names.join(" ")}`.toLowerCase().includes(t)));
+}
+
+function coverageStatusOptions(rows) {
+  const m = coverageData ? coverageMask(coverageData) : 0;
+  return COVERAGE_STATUSES.filter(([k]) => k).map(([value, label]) => ({
+    value, label, children: [],
+    count: rows.filter((a) => COVERAGE_STATUS_TEST[value](a, a.h & m, a.p & m, m)).length,
+  }));
+}
+
+function coverageRows(m, f = TABS.coverage.filter()) {
+  const list = coverageMatches(coverageData, f);
   const { col, dir } = state.csort;
   const sign = dir === "asc" ? 1 : -1;
   const value = {
@@ -2327,8 +2652,9 @@ function coverageYearCells(d, a, m) {
   }));
 }
 
-function coverageList(d, scope, m) {
-  const list = coverageRows(scope, m);
+function coverageList(d, m) {
+  const f = TABS.coverage.filter();
+  const list = coverageRows(m, f);
   const pages = Math.max(1, Math.ceil(list.length / COVERAGE_PAGE));
   if (state.cpage > pages) state.cpage = pages;
   const start = (state.cpage - 1) * COVERAGE_PAGE;
@@ -2351,13 +2677,15 @@ function coverageList(d, scope, m) {
   return [
     el("h3", { class: "section-label", id: "cov-list", text: "Jurisdictions" }),
     el("div", { class: "result-bar" },
-      el("span", {}, el("strong", { text: fmtInt(list.length) }), ` jurisdiction${list.length === 1 ? "" : "s"}`),
+      el("span", { class: "count" }, ...countOf(list.length, d.agencies.length, "jurisdiction", filtersActive(f))),
+      el("span", { class: "active-filters" }, searchTag(f.cq, () => setFilter("coverage", "cq", "")), ...boxTags("coverage")),
+      districtNote(),
       el("span", { class: "cov-legend" }, swatch("p", "Processed"), swatch("h", "Harvested, not yet processed"), swatch("n", "Charges no such fees"), swatch("m", "Not harvested"))),
     el("div", { class: "table-scroll" }, el("table", { class: "grid cov-list" },
       el("thead", {}, el("tr", {},
         sortHeader("Jurisdiction", "name", s, onSort, "col-entity"),
-        sortHeader("Type", "type", s, onSort),
-        sortHeader("County", "county", s, onSort),
+        sortHeader("Type", "type", s, onSort, "", "ctype"),
+        sortHeader("County", "county", s, onSort, "", "ccounty"),
         el("th", { scope: "col", class: "cov-yrs-cell" }, el("span", { class: "col-label", text: `FY ${fmtFy(counted[0])} to ${fmtFy(counted[counted.length - 1])}` })),
         sortHeader("Harvested", "harvested", s, onSort),
         sortHeader("Processed", "processed", s, onSort))),
@@ -2400,16 +2728,25 @@ function fillCoverage(view, d) {
   const range = `FY ${fmtFy(span[0])} to ${fmtFy(span[span.length - 1])}`;
   const scope = coverageScope(d);
   const t = coverageTally(scope, m);
-  const classes = d.classes.filter((c) => !state.ccls || c.key === state.ccls);
-  const byClass = classes.map((c) => ({ label: coverageLink(c.label, { ccls: c.key }), list: scope.filter((a) => a.cls === c.key) }));
+  const f = TABS.coverage.filter();
+  const classes = coverageClasses(d, f);
+  const typeOk = coverageTypeTest(f);
+  const whole = (cls) => !typeOk || (coverageTypePairs(d).get(cls) || []).every((t) => typeOk({ cls, type: t === NONE ? "" : t }));
+  const byClass = classes.map((c) => {
+    const list = scope.filter((a) => a.cls === c.key);
+    return { label: coverageLink(c.label, whole(c.key) || !list.length ? { ccls: c.key, ctype: "" } : coveragePairsOf(list)), list };
+  });
   if (byClass.length > 1) byClass.push({ label: "All", list: scope, cls: "cov-total" });
   const leftOut = classes.filter((c) => c.left_out.length)
     .map((c) => `${c.label}: ${c.left_out.map((x) => `${fmtInt(x.count)} ${x.label.toLowerCase()}`).join(", ")}`);
   const asOf = new Date(d.inventory_utc);
   const when = Number.isNaN(asOf.getTime()) ? d.inventory_utc
     : `${asOf.toLocaleString("en-US", { timeZone: "America/Los_Angeles", dateStyle: "medium", timeStyle: "short" })} PT`;
-  const narrowed = [state.ccls && classes[0]?.label, state.ctype && (state.ctype === NONE ? "type not recorded" : humanize(state.ctype)),
-    state.ccounty && (state.ccounty === NONE ? "county not recorded" : `${state.ccounty} County`)].filter(Boolean);
+  const narrowed = ["ctype", "ccounty", "ad", "sd"].map((k) => {
+    const spec = boxSpec("coverage", k);
+    const raw = spec.get();
+    return raw ? `${spec.label.toLowerCase()} ${boxSummary(spec, raw)}` : "";
+  }).filter(Boolean);
   view.append(
     el("p", {},
       `Each agency on the roster counts once for each fiscal year from FY ${fmtFy(span[0])} to ${fmtFy(span[span.length - 1])}${state.cyr === "all" ? "" : ` (All years, at the top right, goes back to FY ${fmtFy(d.years[0])})`}. `,
@@ -2422,7 +2759,8 @@ function fillCoverage(view, d) {
     el("p", { class: "muted" },
       `Counting ${range}${narrowed.length ? `, ${narrowed.join(", ")}` : ""}. Inventory as of ${when}; release ${String(d.release_commit || "").slice(0, 7)}.`,
       leftOut.length ? ` Left out of every count, holding no report: ${leftOut.join("; ")}.` : "",
-      t.nfH ? ` ${fmtInt(t.nfH)} of the ${fmtInt(t.n)} jurisdictions counted charge no such fees.` : ""),
+      t.nfH ? ` ${fmtInt(t.nfH)} of the ${fmtInt(t.n)} jurisdictions counted charge no such fees.` : "",
+      districtMappedOnly(state) ? ` Under the district filter only agencies with a mapped boundary count. ${unmappedRosterText(d)}` : ""),
     el("div", { class: "tiles" },
       coverageTile("Jurisdictions harvested", t.anyH, t.nfH, t.n, ", any year"),
       coverageTile("Jurisdictions processed", t.anyP, t.nfP, t.n, ", any year"),
@@ -2430,12 +2768,434 @@ function fillCoverage(view, d) {
       coverageTile("Jurisdiction-years processed", t.yP, t.ynfP, t.years)),
     statsBlock("By class", coverageTable("Class", byClass, m)),
     statsBlock("By fiscal year", coverageYearTable(d, scope, m)),
-    statsBlock("By agency type", coverageTable("Type", coverageGroups(scope, (a) => a.type, (k) => (k ? humanize(k) : "(not recorded)"), "ctype"), m)),
+    statsBlock("By agency type", coverageTable("Type", coverageGroups(scope, (a) => a.type, (k) => (k ? humanize(k) : "(not recorded)"), (k, items) => coveragePairsOf(items)), m)),
     el("details", { class: "cov-more", open: Boolean(state.ccounty) },
       el("summary", { class: "section-label", text: "By county" }),
-      el("div", { class: "table-scroll" }, coverageTable("County", coverageGroups(scope, (a) => a.county, (k) => k || "(not recorded)", "ccounty", true), m))),
-    ...coverageList(d, scope, m),
+      el("div", { class: "table-scroll" }, coverageTable("County", coverageGroups(scope, (a) => a.county, (k) => k || "(not recorded)", (k) => ({ ccounty: k || NONE }), true), m))),
+    ...coverageList(d, m),
   );
+}
+
+// ------------------------------------------------------------ DISTRICTS
+// legislative/districts.json loads only when something needs it: a district
+// box opened, ad or sd in the address, the Districts tab, a page's district
+// lines or a download with district columns. It is a site file like
+// coverage.json, so it comes from this origin and never through the Worker.
+
+let districts = null;
+const districtCache = new Map();
+
+function ensureDistricts() {
+  if (districts) return Promise.resolve(districts);
+  return loadDistricts(async (url) => {
+    const res = await fetch(new URL(url, document.baseURI), { cache: "no-cache" });
+    if (!res.ok) throw new Error(`HTTP ${res.status} reading ${url}`);
+    return res.json();
+  }).then((d) => {
+    if (!districts) {
+      districts = d;
+      districtCache.clear();
+    }
+    return districts;
+  });
+}
+
+// The districts one agency touches, as { ad: ["12"], sd: ["7"] }; null when
+// it is not mapped or its name does not resolve.
+function agencyDistricts(name, opts) {
+  if (!districts || !name) return null;
+  const k = `${name}\u0001${opts?.type || ""}\u0001${opts?.county || ""}`;
+  if (!districtCache.has(k)) districtCache.set(k, districts.districtKeys(name, opts));
+  return districtCache.get(k);
+}
+
+// A row passes when its agency touches a ticked district in each chamber
+// filtered; an agency not mapped passes only "(not mapped)".
+function districtTest(f) {
+  const want = CHAMBERS.filter((ch) => f[ch]).map((ch) => [ch, new Set(splitChoice(f[ch]))]);
+  if (!want.length) return null;
+  return (name, opts) => {
+    const keys = agencyDistricts(name, opts);
+    return want.every(([ch, set]) => (keys?.[ch]?.length ? keys[ch].some((n) => set.has(n)) : set.has(NONE)));
+  };
+}
+
+function rowPassesDistricts(name, opts) {
+  const test = districtTest({ ad: state.ad, sd: state.sd });
+  return !test || test(name, opts);
+}
+
+// Roster agencies with no mapped boundary sit in no district, so a district
+// filter leaves them out of Coverage unless "(not mapped)" is ticked.
+function unmappedRoster(cov) {
+  const out = { all: 0, special: 0, school: 0 };
+  for (const a of cov?.agencies || []) {
+    if (agencyDistricts(a.name, { type: a.type, county: a.county })) continue;
+    out.all += 1;
+    if (a.cls === "special") out.special += 1;
+    else if (a.cls === "school") out.school += 1;
+  }
+  return out;
+}
+
+// Whether a district filter passes only mapped agencies: one with no boundary
+// passes only when every chamber filtered ticks "(not mapped)".
+function districtMappedOnly(df) {
+  const on = CHAMBERS.filter((ch) => df[ch]);
+  return on.length > 0 && !on.every((ch) => splitChoice(df[ch]).includes(NONE));
+}
+
+function unmappedRosterText(cov) {
+  const u = unmappedRoster(cov);
+  return `${fmtInt(u.all)} roster agencies have no mapped boundary (${fmtInt(u.special)} special districts and ${fmtInt(u.school)} school agencies), so no district lists them; tick "(not mapped)" in a district box to see them.`;
+}
+
+// A list under a district filter waits for the file rather than draw every
+// row as if it were filtered. Pages of one agency draw at once and fill in
+// their district lines later.
+function districtGate(content) {
+  if (districts) return false;
+  const page = (state.view === "entities" && state.entity) || (state.view === "fees" && state.fee);
+  const needs = state.view === "districts" || ((state.ad || state.sd) && !page && state.view !== "stats");
+  if (!needs) return false;
+  const msg = el("p", { class: "muted", text: "Loading legislative districts…" });
+  content.append(msg);
+  ensureDistricts().then(() => {
+    contentKey = "";
+    renderAll();
+  }).catch((err) => {
+    if (!msg.isConnected) return;
+    msg.replaceChildren(`Failed to load the district file: ${err.message}. `,
+      el("button", { class: "btn", type: "button", text: "Retry", onclick: () => { contentKey = ""; renderAll(); } }));
+  });
+  return true;
+}
+
+const DISTRICT_BASIS = {
+  boundary: "its Census TIGER/Line boundary",
+  district_boundary: "its own mapped boundary, counted by 2020 census blocks",
+  same_as: "another agency's boundary",
+  approximate: "an approximate boundary",
+  unmapped: "no boundary",
+};
+const DISTRICT_BASIS_SHORT = {
+  boundary: "TIGER boundary", district_boundary: "District layer", same_as: "Same as another", approximate: "Approximate", unmapped: "Not mapped",
+};
+
+const byShare = (a, b) => (b.share ?? -1) - (a.share ?? -1) || a.n - b.n;
+const sharePct = (share) => (share === null ? "" : `${+(share * 100).toFixed(1)}%`);
+
+// The record of a row's agency: a record itself, or [name, opts] to look up.
+function districtRecord(where) {
+  if (!districts || !where) return null;
+  if (where.basis && Array.isArray(where.ad)) return where;
+  const [name, opts] = Array.isArray(where) ? where : [where];
+  return districts.lookup(name, opts);
+}
+
+// "Assembly: 18 (89%), 14 (11%), 20 (edge)", each number a link to
+// Jurisdictions in that district. Kept apart from .dossier-meta.
+function districtLines(name, opts) {
+  const box = el("div", { class: "dossier-districts" });
+  const fill = () => {
+    const rec = districts.lookup(name, opts);
+    if (!rec) return;
+    if (rec.basis === "unmapped") {
+      box.append(el("p", { class: "muted", text: `Legislative districts: not mapped.${rec.basis_note ? ` ${rec.basis_note}` : ""}` }));
+      return;
+    }
+    for (const ch of CHAMBERS) {
+      const list = [...rec[ch]].sort(byShare);
+      box.append(el("p", { class: "district-line" },
+        el("span", { class: "dl-chamber", text: `${CHAMBER[ch].word}:` }), " ",
+        list.flatMap((d, i) => [i ? ", " : null, districtFilterLink(ch, d.n),
+          d.edge
+            ? el("span", { class: "edge-badge", title: "Under 1% of its 2020 residents", text: " (edge)" })
+            : ` (${Math.round(d.share * 100)}%)`])));
+    }
+    const note = rec.basis === "approximate" || rec.basis === "same_as" ? rec.basis_note : "";
+    // An approximate boundary that leaves part of the agency out (members
+    // only, or a note that it may miss districts) can miss a district.
+    const subset = rec.basis === "approximate" && /not mapped|may miss/i.test(rec.basis_note);
+    box.append(el("div", { class: "muted district-basis" },
+      `Placed by ${DISTRICT_BASIS[rec.basis]}${note ? `: ${note.replace(/\.$/, "")}` : ""}. Shares are of its 2020 residents. `,
+      districtCaveatBox(subset ? "May be missing from districts its unmapped territory touches" : "Listed in every district it touches")));
+  };
+  if (districts) fill();
+  else ensureDistricts().then(fill, (err) => console.warn(err));
+  return box;
+}
+
+// Opens a tab with only the one district as its filter.
+function openFiltered(view, ch, n) {
+  TABS[view].clear();
+  state.ad = ch === "ad" ? String(n) : "";
+  state.sd = ch === "sd" ? String(n) : "";
+  state.view = view;
+  state.entity = "";
+  state.fee = "";
+  state.figure = "";
+  state.doc = "";
+  state.pg = null;
+  resetPages();
+  toolbarView = "";
+  update({ push: true });
+  scrollContentTop();
+}
+
+function districtFilterLink(ch, n, view = "entities", text = String(n)) {
+  return el("a", {
+    href: hrefWith({ view, ad: ch === "ad" ? String(n) : "", sd: ch === "sd" ? String(n) : "" }), text,
+    title: `${TABS[view].label} in ${CHAMBER[ch].label} ${n}`,
+    onclick: (ev) => { ev.preventDefault(); openFiltered(view, ch, n); },
+  });
+}
+
+function chamberSwitch() {
+  return el("span", { class: "chamber-switch", role: "group", "aria-label": "Chamber" },
+    CHAMBERS.map((ch) => el("button", {
+      class: "btn", type: "button", "data-dch": ch, "aria-pressed": state.dch === ch ? "true" : "false", text: CHAMBER[ch].word,
+      onclick: () => {
+        if (state.dch === ch && !state.dn) return;
+        state.dch = ch;
+        state.dn = "";
+        update({ push: true });
+      },
+    })));
+}
+
+// Every district's agencies and totals, worked out once for each load of the
+// release and the district file.
+let districtAgg = null;
+
+function districtAggregates() {
+  if (districtAgg?.districts === districts && districtAgg.model === model) return districtAgg;
+  const byRecord = new Map();
+  for (const e of model.entities) {
+    const rec = districts.lookup(...releaseWhere(e.name));
+    if (!rec) continue;
+    if (!byRecord.has(rec.key)) byRecord.set(rec.key, []);
+    byRecord.get(rec.key).push(e);
+  }
+  // What the release publishes for each record: its figures, its sum of
+  // primary rows and the fiscal years with figures, over every release name
+  // (names, most figures first) that resolves to it.
+  const published = new Map();
+  for (const [key, list] of byRecord) {
+    const years = new Set();
+    let figures = 0;
+    let sum = 0;
+    for (const e of list) {
+      figures += e.figures.length;
+      sum += e.sum;
+      for (const y of e.years) years.add(y);
+    }
+    const names = [...list].sort((a, b) => b.figures.length - a.figures.length || a.name.localeCompare(b.name));
+    published.set(key, { main: names[0], names, figures, sum, years: [...years].sort() });
+  }
+  const out = { districts, model, published };
+  for (const ch of CHAMBERS) {
+    const rows = districts.chambers[ch].map((c) => ({
+      n: c.n, label: c.label, counties: c.counties, agencies: [], muni: 0, muniFig: 0, school: 0, special: 0, figures: 0, sum: 0, withFigures: 0,
+    }));
+    for (const rec of districts.agencies()) {
+      const pub = published.get(rec.key) || null;
+      for (const d of rec[ch]) {
+        const row = rows[d.n - 1];
+        if (!row) continue;
+        row.agencies.push({ rec, d, pub });
+        if (rec.class === "municipal") {
+          row.muni += 1;
+          if (pub) row.muniFig += 1;
+        } else if (rec.class === "school") row.school += 1;
+        else row.special += 1;
+        if (pub) {
+          row.figures += pub.figures;
+          row.sum += pub.sum;
+          row.withFigures += 1;
+        }
+      }
+    }
+    out[ch] = rows;
+  }
+  districtAgg = out;
+  return out;
+}
+
+const DISTRICT_SUM_TIP = "Primary rows of every agency touching the district, each agency's whole total; an agency in several districts counts in each, so district sums overlap.";
+
+function districtCallout() {
+  const m = districts.meta;
+  return el("div", { class: "district-callout", role: "note" },
+    el("p", {}, el("strong", { text: "Districts overlap. " }), `${m.caveat} ${DISTRICT_APPROX}`),
+    el("p", { class: "muted", text: `${m.plan}. ${m.plan_note}` }),
+    el("details", {},
+      el("summary", { text: "How agencies are placed" }),
+      el("p", { text: m.method }),
+      el("p", { text: m.source }),
+      el("p", { class: "muted", text: `${m.vintage}. Built ${m.built_utc}.` })));
+}
+
+function renderDistricts(content) {
+  const agg = districtAggregates();
+  const ch = state.dch;
+  const row = state.dn ? agg[ch][Number(state.dn) - 1] : null;
+  content.append(el("div", { class: "districts-view" }, districtCallout(),
+    districtElsewhereNote(row ? `This page lists every agency touching ${row.label}.` : "This tab lists every district."),
+    row ? districtPage(agg, ch, row) : districtList(agg, ch)));
+}
+
+function districtRows(agg, ch) {
+  const s = state.dsort;
+  const val = {
+    n: (r) => r.n, counties: (r) => r.counties.length, muni: (r) => r.muni, muniFig: (r) => r.muniFig,
+    school: (r) => r.school, special: (r) => r.special, figures: (r) => r.figures, sum: (r) => (r.withFigures ? r.sum : -Infinity),
+  }[s.col];
+  const sign = s.dir === "asc" ? 1 : -1;
+  return [...agg[ch]].sort((a, b) => sign * (val(a) - val(b)) || a.n - b.n);
+}
+
+function openDistrict(ch, n) {
+  state.dch = ch;
+  state.dn = String(n);
+  update({ push: true });
+  scrollContentTop();
+}
+
+function districtHref(ch, n = "") {
+  return hrefWith({ view: "districts", dch: ch === "ad" ? "" : ch, dn: n ? String(n) : "" });
+}
+
+function districtList(agg, ch) {
+  const rows = districtRows(agg, ch);
+  const s = state.dsort;
+  const onSort = (c) => { state.dsort = toggleSort(state.dsort, c, c !== "n"); update(); };
+  const num = (v) => el("td", { class: "num", text: fmtInt(v) });
+  const body = el("tbody", {}, rows.map((r) => el("tr", {},
+    el("td", { class: "col-entity col-district" }, el("a", {
+      href: districtHref(ch, r.n), text: r.label,
+      onclick: (ev) => { ev.preventDefault(); openDistrict(ch, r.n); },
+    })),
+    el("td", { class: "col-counties", text: r.counties.join(", ") }),
+    num(r.muni), num(r.muniFig), num(r.school), num(r.special), num(r.figures),
+    el("td", { class: "num", text: r.withFigures ? fmtSum(r.sum) : "" }))));
+  return [
+    el("div", { class: "result-bar" },
+      el("span", { class: "count" }, el("strong", { text: fmtInt(rows.length) }), ` ${CHAMBER[ch].word} districts`),
+      el("span", { class: "muted", text: districts.meta.plan.split(" (")[0] }),
+      districtCaveatBox()),
+    el("div", { class: "table-scroll" }, el("table", { class: "grid districts-grid" },
+      el("thead", {}, el("tr", {},
+        sortHeader("District", "n", s, onSort, "col-entity"),
+        sortHeader("Counties touched", "counties", s, onSort, "col-counties"),
+        sortHeader("Cities and counties touching", "muni", s, onSort, "num"),
+        sortHeader("Of those with published figures", "muniFig", s, onSort, "num"),
+        sortHeader("School districts touching", "school", s, onSort, "num"),
+        sortHeader("Special districts touching (mapped only)", "special", s, onSort, "num"),
+        sortHeader("Published figures of touching agencies", "figures", s, onSort, "num"),
+        sortHeader("Sum of primary rows", "sum", s, onSort, "num"))),
+      body)),
+    el("p", { class: "muted district-sum-note", text: DISTRICT_SUM_TIP }),
+  ];
+}
+
+function districtPageRows(row) {
+  const s = state.dpsort;
+  const items = row.agencies.map(({ rec, d, pub }) => ({ rec, d, pub }));
+  const val = {
+    name: (x) => x.rec.name, type: (x) => humanize(x.rec.type), county: (x) => x.rec.county,
+    share: (x) => x.d.share ?? -1, figures: (x) => x.pub?.figures ?? 0, latest: (x) => x.pub?.years.at(-1) || "",
+    sum: (x) => (x.pub ? x.pub.sum : -Infinity),
+  }[s.col];
+  const sign = s.dir === "asc" ? 1 : -1;
+  return items.sort((a, b) => {
+    const x = val(a);
+    const y = val(b);
+    const c = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
+    return sign * c || a.rec.name.localeCompare(b.rec.name);
+  });
+}
+
+// A touching agency's name opens its page, or its Coverage row when the
+// release publishes nothing for it. A row that adds up several release
+// names links each one too, since each is its own page.
+function districtAgencyLink(x, ch, n) {
+  if (x.pub) {
+    const open = (name, text) => el("a", { href: entityHref(name), text, onclick: (ev) => { ev.preventDefault(); openEntity(name); } });
+    const main = open(x.pub.main.name, x.rec.name);
+    if (x.pub.names.length < 2) return main;
+    return [main, el("span", { class: "also-names" }, "Published as ",
+      x.pub.names.flatMap((e, i) => [i ? ", " : null, open(e.name, e.name), ` (${fmtInt(e.figures.length)})`]))];
+  }
+  const cq = `"${x.rec.name}"`;
+  const at = { ad: ch === "ad" ? String(n) : "", sd: ch === "sd" ? String(n) : "" };
+  return el("a", {
+    href: hrefWith({ view: "coverage", cq, ...at }), text: x.rec.name, title: "Its row in Coverage",
+    onclick: (ev) => {
+      ev.preventDefault();
+      TABS.coverage.clear();
+      Object.assign(state, at, { view: "coverage", cq });
+      resetPages();
+      toolbarView = "";
+      update({ push: true });
+      scrollContentTop();
+    },
+  });
+}
+
+function districtPage(agg, ch, row) {
+  const rows = districtPageRows(row);
+  const spellings = rows.reduce((t, x) => t + (x.pub ? x.pub.names.length : 0), 0);
+  const s = state.dpsort;
+  const onSort = (c) => { state.dpsort = toggleSort(state.dpsort, c, ["share", "figures", "latest", "sum"].includes(c)); update(); };
+  const back = el("a", {
+    class: "back", href: districtHref(ch), text: `← All ${CHAMBER[ch].word} districts`,
+    onclick: (ev) => { ev.preventDefault(); state.dn = ""; update({ push: true }); },
+  });
+  const opens = ["figures", "entities", "fees", "coverage"].map((v) => districtFilterLink(ch, row.n, v, TABS[v].label));
+  const body = el("tbody", {}, rows.map((x) => el("tr", {},
+    el("td", { class: "col-entity" }, districtAgencyLink(x, ch, row.n)),
+    el("td", { text: humanize(x.rec.type) || "(not recorded)" }),
+    el("td", { text: x.rec.county }),
+    el("td", { class: "num" }, x.d.share === null ? "n/a" : sharePct(x.d.share),
+      x.d.edge ? el("span", { class: "edge-badge", title: "Under 1% of its 2020 residents", text: "edge" }) : null),
+    el("td", { title: x.rec.basis_note || null, text: DISTRICT_BASIS_SHORT[x.rec.basis] }),
+    el("td", { class: "num", text: x.pub ? fmtInt(x.pub.figures) : "" }),
+    el("td", { text: x.pub ? fyRanges(x.pub.years) : "" }),
+    el("td", { class: "col-fy", text: x.pub ? fmtFy(x.pub.years.at(-1)) : "" }),
+    el("td", { class: "num", text: x.pub ? fmtSum(x.pub.sum) : "" }))));
+  if (!rows.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 9, text: "No mapped agency touches this district." })));
+  return [
+    el("div", { class: "dossier-head" },
+      back,
+      el("h2", { text: row.label }),
+      el("div", { class: "dossier-meta" },
+        [`${fmtInt(rows.length)} agencies touching`, `${fmtInt(row.muni)} cities and counties`, `${fmtInt(row.school)} school districts`,
+          `${fmtInt(row.special)} special districts`, `${fmtInt(row.figures)} published figures`]
+          .map((t) => el("span", { text: t }))),
+      el("p", { class: "muted", text: `Counties touched: ${row.counties.join(", ") || "none recorded"}.` }),
+      el("p", { class: "district-open" }, "Open filtered to this district: ", opens.flatMap((a, i) => [i ? " / " : null, a])),
+      spellings > row.withFigures
+        ? el("p", { class: "muted", text: `The ${fmtInt(row.withFigures)} agencies with figures are published under ${fmtInt(spellings)} names, which the other tabs list apart; a row here adds up every name it is published under.` })
+        : null),
+    el("div", { class: "result-bar" },
+      el("span", { class: "count" }, el("strong", { text: fmtInt(rows.length) }), ` agenc${rows.length === 1 ? "y" : "ies"}`, ` · ${fmtInt(row.withFigures)} with published figures`),
+      row.withFigures ? el("span", { class: "sum", title: DISTRICT_SUM_TIP }, "whole-agency sum ", el("strong", { text: fmtSum(row.sum) })) : null,
+      districtCaveatBox()),
+    el("div", { class: "table-scroll" }, el("table", { class: "grid districts-grid" },
+      el("thead", {}, el("tr", {},
+        sortHeader("Agency", "name", s, onSort, "col-entity"),
+        sortHeader("Type", "type", s, onSort),
+        sortHeader("County", "county", s, onSort),
+        sortHeader("2020 residents in district", "share", s, onSort, "num"),
+        el("th", { scope: "col" }, el("span", { class: "col-label", text: "Basis" })),
+        sortHeader("Figures", "figures", s, onSort, "num"),
+        el("th", { scope: "col" }, el("span", { class: "col-label", text: "Fiscal years with figures" })),
+        sortHeader("Latest FY", "latest", s, onSort, "col-fy"),
+        sortHeader("Sum of primary rows", "sum", s, onSort, "num"))),
+      body)),
+    el("p", { class: "muted district-sum-note", text: `${DISTRICT_SUM_TIP} A missing year is missing, not zero.` }),
+  ];
 }
 
 // ------------------------------------------------------------ FUNDS, SCHEDULES, PERMITS
@@ -2450,27 +3210,43 @@ function rerenderContent() {
 }
 
 function renderFundsTab(content) {
-  renderFunds(content, {
+  renderFunds(content, fundsCtx());
+}
+
+// The Funds tab's ctx, built from the address bar; the Download menu and the
+// report build one too, so they reach the tab before it has been opened.
+function fundsCtx() {
+  return {
+    ...libCtx(),
     fetchText, dataUrl, officialUrl,
     collections: model.rows,
     entityLink: (name) => entityFilterLink(name),
     agencyHref: (name) => hrefWith({ view: "funds", fa: name }),
     agency: state.fa,
     q: state.faq,
+    county: state.facounty,
+    type: state.fatype,
     isCurrent: () => state.view === "funds",
     rerender: rerenderContent,
     // The search filters the list in place; only the address bar follows it.
-    onSelect: ({ agency, q }) => {
+    onSelect: ({ agency, q, county, type }) => {
       const push = agency !== state.fa;
       state.fa = agency;
       state.faq = q;
+      state.facounty = county;
+      state.fatype = type;
       writeUrl(push);
     },
-  });
+  };
 }
 
 function renderSchedulesTab(content) {
-  renderSchedules(content, {
+  renderSchedules(content, schedulesCtx());
+}
+
+function schedulesCtx() {
+  return {
+    ...libCtx(),
     fetchText, officialUrl, openDoc,
     sourceById: model.sourceById,
     agencyHref: (name) => hrefWith({ view: "schedules", scagency: name }),
@@ -2482,11 +3258,12 @@ function renderSchedulesTab(content) {
       state.sc = Object.fromEntries(SCHEDULE_KEYS.map((k) => [k, String(s[k] ?? "")]));
       writeUrl(push);
     },
-  });
+  };
 }
 
 function permitsCtx() {
   return {
+    ...libCtx(),
     model, state, update, loadCoverage, showTooltip, hideTooltip, entityHref, openEntity,
     permitsHref: () => hrefWith({ view: "permits" }),
     openPermits: () => openView("permits"),
@@ -2885,23 +3662,845 @@ function renderDocPanel(panel, src) {
   });
 }
 
-// ============================================================ EXPORT
+// ============================================================ DOWNLOADS
+// The Download menu: the current tab's rows as CSV, or an HTML report of
+// any tabs. Both carry data rows only, never PDFs or Worker document URLs
+// (approved by Amy on 2026-11-06); their links point at mfa.amyc.us and at
+// the publisher's own copy.
 
-function exportCsv() {
-  let figs = [];
-  let name = "mfa-figures";
-  if (state.view === "figures") figs = currentFigures();
-  else if (state.view === "entities" && state.entity) {
-    const e = model.entityByName.get(state.entity);
-    figs = e ? entityFigureOrder(e) : [];
-    name = `mfa-${state.entity.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+const DATA_VIEWS = ["entities", "districts", "fees", "sources", "figures", "funds", "schedules", "permits", "coverage"];
+const REPORT_TABS = ["entities", "fees", "figures", "sources", "funds", "schedules", "permits", "coverage", "districts"];
+const LIB_VIEWS = ["funds", "schedules", "permits"];
+const VIEW_LABEL = {
+  entities: "Jurisdictions", districts: "Districts", fees: "Fees", sources: "Sources", figures: "Figures",
+  funds: "Funds", schedules: "Schedules", permits: "Permits", coverage: "Coverage", stats: "Stats",
+};
+// A report table stops here; its tab says how many rows it left out.
+const REPORT_ROW_CAP = 5000;
+const SUM_CAVEAT = "Sums add primary rows only and are sums of what is shown, not statewide totals; a missing year is missing, not zero.";
+
+// The lib tabs' rows for the downloads. Each call builds the tab's ctx from
+// the address bar, so a tab never opened in this visit can be downloaded or
+// ticked in the report; the lib view loads its file the first time.
+const exportProviders = new Map([
+  ["funds", (opts) => exportFunds(fundsCtx(), opts)],
+  ["schedules", (opts) => exportSchedules(schedulesCtx(), opts)],
+  ["permits", (opts) => exportPermits(permitsCtx(), opts)],
+]);
+
+// A link to the public site, pinned to this release. A local copy's data=
+// means nothing to anyone else, so it never appears.
+function siteHref(params) {
+  const p = new URLSearchParams();
+  if (!cfg.local && cfg.ref) p.set("ref", cfg.ref);
+  for (const [k, v] of Object.entries(params)) if (v) p.set(k, v);
+  const qs = p.toString();
+  return `${SITE_URL}${qs ? `?${qs}` : ""}`;
+}
+
+function sitePermalink() {
+  const p = stateParams({ pinRef: true });
+  p.delete("data");
+  if (cfg.local) p.delete("ref");
+  const qs = p.toString();
+  return `${SITE_URL}${qs ? `?${qs}` : ""}`;
+}
+
+const siteLink = (text, params) => ({ text, href: siteHref(params) });
+const officialLink = (text, raw, page) => {
+  const href = officialUrl(raw, page);
+  return href ? { text, href } : text;
+};
+
+// The four district columns every agency row carries in a CSV.
+function districtCsvColumns(agency) {
+  const rec = (row) => {
+    const r = districtRecord(agency(row));
+    return r && r.basis !== "unmapped" ? r : null;
+  };
+  return [
+    ...CHAMBERS.map((ch) => ({
+      key: `${CHAMBER[ch].csv}_districts_touching`,
+      value: (row) => rec(row)?.[ch].map((d) => d.n).sort((a, b) => a - b).join("; ") ?? "",
+    })),
+    ...CHAMBERS.map((ch) => ({
+      key: `${CHAMBER[ch].csv}_district_resident_shares`,
+      value: (row) => rec(row)?.[ch].slice().sort(byShare).map((d) => `${d.n}: ${d.share === null ? "n/a" : sharePct(d.share)}`).join("; ") ?? "",
+    })),
+  ];
+}
+
+// The tab's own filters in words, search first.
+function tabFilterWords(view) {
+  const tab = TABS[view];
+  if (!tab) return [];
+  const f = tab.filter();
+  const out = [];
+  const q = { figures: f.q, entities: f.eq, fees: f.fq, sources: f.sq, coverage: f.cq }[view];
+  if (q) out.push({ label: "Search", value: `“${q}”` });
+  if (view === "figures" && f.source) out.push({ label: "Source", value: model.sourceById.get(f.source)?.publication_title || f.source });
+  for (const k of tab.tags) {
+    const spec = boxSpec(view, k);
+    const raw = spec.get();
+    if (raw) out.push({ label: spec.label, value: splitChoice(raw).map((v) => spec.text(v)).join(" or ") });
   }
-  const rows = figs.map((f) => f.primary);
-  const blob = new Blob([toCsv(columns, rows)], { type: "text/csv;charset=utf-8" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: `${name}-${rows.length}.csv` });
-  document.body.append(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  if (view === "coverage") out.push({ label: "Years", value: state.cyr === "all" ? "all fiscal years" : `FY ${fmtFy(RECENT_FROM)} on` });
+  return out;
+}
+
+function districtFilterWords() {
+  return CHAMBERS.filter((ch) => state[ch])
+    .map((ch) => ({ label: CHAMBER[ch].box, value: splitChoice(state[ch]).map((v) => (v === NONE ? "not mapped" : districtLabel(ch, v))).join(" or ") }));
+}
+
+// Every release column but the release's own document addresses, which map
+// onto the Worker's document URLs: a CSV carries data rows, a link to the
+// figure on mfa.amyc.us and the publisher's own copy.
+const DOCUMENT_COLUMNS = new Set(["source_pdf", "page_extract_pdf", "outlined_figure_pdf"]);
+const figureCsvColumns = () => [
+  ...columns.filter((k) => !DOCUMENT_COLUMNS.has(k)).map((k) => ({
+    key: k,
+    value: k === "official_source_url" ? (fig) => officialUrl(fig.primary[k]) || "" : (fig) => fig.primary[k],
+  })),
+  { key: "figure_url", value: (fig) => siteHref({ view: "figures", f: fig.id }) },
+];
+
+// A money sum in a CSV, to the cent: float sums carry noise (6189861.170000001).
+const cents = (v) => (Number.isFinite(v) ? (Math.round(v * 100) / 100).toFixed(2) : "");
+
+const FIGURE_REPORT_COLUMNS = [
+  { key: "entity", label: "Jurisdiction", kind: "link", value: (f) => siteLink(f.entity, { view: "entities", e: f.entity }) },
+  { key: "fy", label: "Fiscal year", kind: "fy", value: (f) => f.fy },
+  { key: "program", label: "Fee program", value: (f) => f.program },
+  { key: "category", label: "Category", value: (f) => (f.cat ? categoryLabel(f.cat) : NOT_CLASSIFIED) },
+  { key: "label", label: "Printed label", value: (f) => f.label },
+  { key: "value", label: "Amount", kind: "usd", value: (f) => f.value },
+  { key: "figure", label: "Figure", kind: "link", value: (f) => siteLink(`page ${f.primary.printed_page || f.page || ""}`.trim(), { view: "figures", f: f.id }) },
+  { key: "official", label: "Publisher's copy", kind: "link", value: (f) => officialLink(f.primary.publication_title || "report", f.primary.official_source_url, f.page) },
+];
+
+function coverageYearWords(d, m) {
+  return d.years.flatMap((fy, i) => {
+    const b = 1 << i;
+    if (!(m & b)) return [];
+    return [{
+      key: `fy_${fy.replace("-", "_")}`,
+      value: (a) => (a.p & b ? "processed" : a.h & b ? "harvested" : a.nofee ? "no such fees" : "not harvested"),
+    }];
+  });
+}
+
+// Each tab's rows for the downloads, under its filters: label, report
+// columns, CSV columns, rows, filters in words and the agency of a row.
+// Async, since Coverage and Districts may need their files first.
+async function tabExport(view, { page = true } = {}) {
+  const words = tabFilterWords(view);
+  if ((state.ad || state.sd) && view !== "districts") await ensureDistricts();
+  // figures marks rows that are figures, which the report's key statistics
+  // count; scope names them. An agency or fee page names itself in filters
+  // and subtitle, so its report says whose rows it holds.
+  if (view === "figures") {
+    return { view, label: "Figures", base: "figures", rows: currentFigures(), columns: FIGURE_REPORT_COLUMNS, csv: figureCsvColumns(), agency: (f) => releaseWhere(f.entity), filters: words,
+      figures: true, scope: "the figures on the Figures tab, under its filters",
+      note: "Primary rows only; a figure's restatements are on its page." };
+  }
+  if (view === "entities" && page && state.entity) {
+    const e = model.entityByName.get(state.entity);
+    const rows = e ? entityFigureOrder(e) : [];
+    return { view, label: state.entity, base: `${state.entity} figures`, rows, columns: FIGURE_REPORT_COLUMNS, csv: figureCsvColumns(), agency: (f) => releaseWhere(f.entity),
+      filters: [{ label: "Jurisdiction", value: state.entity }], subtitle: state.entity, figures: true, scope: `the figures of ${state.entity}` };
+  }
+  if (view === "fees" && page && state.fee) {
+    const fee = currentFee();
+    const label = fee?.label || state.fee;
+    return { view, label, base: `${state.entity} ${state.fee}`, rows: fee ? fee.figures : [], columns: FIGURE_REPORT_COLUMNS, csv: figureCsvColumns(), agency: (f) => releaseWhere(f.entity),
+      filters: [{ label: "Jurisdiction", value: state.entity }, { label: "Fee", value: label }], subtitle: `${label}, ${state.entity}`, figures: true,
+      scope: `the figures of ${label}, ${state.entity}` };
+  }
+  if (view === "entities") {
+    return {
+      view, label: "Jurisdictions", base: "jurisdictions", rows: entityRows(), agency: (e) => releaseWhere(e.name), filters: words,
+      columns: [
+        { key: "name", label: "Jurisdiction", kind: "link", value: (e) => siteLink(e.name, { view: "entities", e: e.name }) },
+        { key: "type", label: "Type", value: (e) => entityTypeLabel(e.type) },
+        { key: "county", label: "County", value: (e) => e.county },
+        { key: "years", label: "Fiscal years", value: (e) => fyRanges(e.yearList) },
+        { key: "figures", label: "Figures", kind: "int", value: (e) => e.figures.length },
+        { key: "fees", label: "Fees", kind: "int", value: (e) => e.fees.size },
+        { key: "reports", label: "Reports", kind: "int", value: (e) => e.sources.size },
+        { key: "sum", label: "Sum of primary rows", kind: "usd", value: (e) => e.sum },
+      ],
+      csv: [
+        { key: "jurisdiction", value: (e) => e.name },
+        { key: "entity_type", value: (e) => e.type },
+        { key: "entity_type_label", value: (e) => entityTypeLabel(e.type) },
+        { key: "county", value: (e) => e.county },
+        { key: "fiscal_years", value: (e) => e.yearList.join("; ") },
+        { key: "years", value: (e) => e.years.size },
+        { key: "figures", value: (e) => e.figures.length },
+        { key: "fees", value: (e) => e.fees.size },
+        { key: "reports", value: (e) => e.sources.size },
+        { key: "sum_of_primary_rows_usd", value: (e) => cents(e.sum) },
+        { key: "page_url", value: (e) => siteHref({ view: "entities", e: e.name }) },
+      ],
+    };
+  }
+  if (view === "fees") {
+    const program = (fee) => fee.figures[fee.figures.length - 1].program;
+    return {
+      view, label: "Fees", base: "fees", rows: feeRows(), agency: (fee) => releaseWhere(fee.entity), filters: words,
+      columns: [
+        { key: "entity", label: "Jurisdiction", kind: "link", value: (fee) => siteLink(fee.entity, { view: "entities", e: fee.entity }) },
+        { key: "fee", label: "Fee", kind: "link", value: (fee) => siteLink(fee.label, { view: "fees", e: fee.entity, fee: program(fee) }) },
+        { key: "category", label: "Category", value: (fee) => (fee.cat ? categoryLabel(fee.cat) : NOT_CLASSIFIED) },
+        { key: "years", label: "Fiscal years", value: (fee) => fyRanges(fee.yearList) },
+        { key: "figures", label: "Figures", kind: "int", value: (fee) => fee.figures.length },
+        { key: "sum", label: "Sum of primary rows", kind: "usd", value: (fee) => fee.sum },
+      ],
+      csv: [
+        { key: "jurisdiction", value: (fee) => fee.entity },
+        { key: "fee", value: (fee) => fee.label },
+        { key: "names_as_printed", value: (fee) => fee.names.join("; ") },
+        { key: "fee_category", value: (fee) => fee.cat },
+        { key: "fee_category_label", value: (fee) => (fee.cat ? categoryLabel(fee.cat) : NOT_CLASSIFIED) },
+        { key: "entity_type", value: (fee) => latestPrimary(fee).entity_type },
+        { key: "county", value: (fee) => latestPrimary(fee).county },
+        { key: "fiscal_years", value: (fee) => fee.yearList.join("; ") },
+        { key: "figures", value: (fee) => fee.figures.length },
+        { key: "sum_of_primary_rows_usd", value: (fee) => cents(fee.sum) },
+        { key: "page_url", value: (fee) => siteHref({ view: "fees", e: fee.entity, fee: program(fee) }) },
+      ],
+    };
+  }
+  if (view === "sources") {
+    return {
+      view, label: "Sources", base: "sources", rows: sourceRows(), agency: (s) => releaseWhere(s.receiving_entity), filters: words,
+      columns: [
+        { key: "agency", label: "Agency", value: (s) => s.receiving_entity },
+        { key: "title", label: "Publication", kind: "link", value: (s) => officialLink(s.publication_title, s.official_source_url) },
+        { key: "type", label: "Type", value: (s) => publicationTypeLabel(s.publication_type) },
+        { key: "covers", label: "Covers", value: (s) => coversYears(s).map(fmtFy).join(", ") || s.covers_fiscal_year },
+        { key: "pages", label: "Pages", kind: "int", value: (s) => s._pages },
+        { key: "figures", label: "Figures", kind: "int", value: (s) => s._figures },
+        { key: "source", label: "Source id", kind: "link", value: (s) => siteLink(s.source_id, { view: "sources", doc: s.source_id }) },
+      ],
+      csv: [
+        { key: "source_id", value: (s) => s.source_id },
+        { key: "agency", value: (s) => s.receiving_entity },
+        { key: "publication_title", value: (s) => s.publication_title },
+        { key: "publication_type", value: (s) => s.publication_type },
+        { key: "publication_type_label", value: (s) => publicationTypeLabel(s.publication_type) },
+        { key: "covers_fiscal_year", value: (s) => s.covers_fiscal_year },
+        { key: "fiscal_years_named", value: (s) => coversYears(s).join("; ") },
+        { key: "pages", value: (s) => s._pages },
+        { key: "bytes", value: (s) => s._bytes },
+        { key: "figures", value: (s) => s._figures },
+        { key: "official_source_url", value: (s) => officialUrl(s.official_source_url) || "" },
+        { key: "retrieved_utc", value: (s) => s.retrieved_utc },
+        { key: "source_sha256", value: (s) => s.source_sha256 },
+        { key: "page_url", value: (s) => siteHref({ view: "sources", doc: s.source_id }) },
+      ],
+    };
+  }
+  if (view === "coverage") {
+    const d = await loadCoverage();
+    const m = coverageMask(d);
+    const span = bitCount(m);
+    return {
+      view, label: "Coverage", base: "coverage", rows: coverageRows(m), agency: (a) => [a.name, { type: a.type, county: a.county }], filters: words,
+      columns: [
+        { key: "name", label: "Jurisdiction", kind: "link", value: (a) => (a.names.length ? siteLink(a.name, { view: "entities", e: a.names[0] }) : a.name) },
+        { key: "class", label: "Class", value: (a) => coverageClassLabel(a.cls) },
+        { key: "type", label: "Type", value: (a) => coverageTypeName(a.type) },
+        { key: "county", label: "County", value: (a) => a.county },
+        { key: "harvested", label: `Years harvested of ${span}`, kind: "int", value: (a) => bitCount(a.h & m) },
+        { key: "processed", label: `Years processed of ${span}`, kind: "int", value: (a) => bitCount(a.p & m) },
+        { key: "nofee", label: "Charges no such fees", value: (a) => (a.nofee ? "yes" : "") },
+      ],
+      csv: [
+        { key: "jurisdiction", value: (a) => a.name },
+        { key: "class", value: (a) => a.cls },
+        { key: "agency_type", value: (a) => a.type },
+        { key: "county", value: (a) => a.county },
+        { key: "release_names", value: (a) => a.names.join("; ") },
+        { key: "charges_no_such_fees", value: (a) => (a.nofee ? "yes" : "") },
+        { key: "years_counted", value: () => span },
+        { key: "years_harvested", value: (a) => bitCount(a.h & m) },
+        { key: "years_processed", value: (a) => bitCount(a.p & m) },
+        ...coverageYearWords(d, m),
+      ],
+    };
+  }
+  if (view === "districts") {
+    await ensureDistricts();
+    const agg = districtAggregates();
+    const ch = state.dch;
+    const row = state.dn ? agg[ch][Number(state.dn) - 1] : null;
+    const filters = [{ label: "Chamber", value: CHAMBER[ch].word }];
+    if (row) {
+      return {
+        view, label: row.label, base: row.label, rows: districtPageRows(row), agency: (x) => x.rec, filters: [...filters, { label: "District", value: row.label }],
+        subtitle: `Agencies touching ${row.label}`, district: { [ch]: String(row.n) },
+        note: DISTRICT_SUM_TIP,
+        columns: [
+          { key: "name", label: "Agency", kind: "link", value: (x) => (x.pub ? siteLink(x.rec.name, { view: "entities", e: x.pub.main.name }) : x.rec.name) },
+          { key: "type", label: "Type", value: (x) => humanize(x.rec.type) },
+          { key: "county", label: "County", value: (x) => x.rec.county },
+          { key: "share", label: "2020 residents in district", kind: "pct", value: (x) => x.d.share },
+          { key: "edge", label: "Edge", value: (x) => (x.d.edge ? "edge" : "") },
+          { key: "basis", label: "Basis", value: (x) => DISTRICT_BASIS_SHORT[x.rec.basis] },
+          { key: "figures", label: "Figures", kind: "int", value: (x) => x.pub?.figures },
+          { key: "years", label: "Fiscal years with figures", value: (x) => (x.pub ? fyRanges(x.pub.years) : "") },
+          { key: "sum", label: "Sum of primary rows", kind: "usd", value: (x) => x.pub?.sum },
+        ],
+        csv: [
+          { key: "chamber", value: () => CHAMBER[ch].csv },
+          { key: "district", value: () => row.n },
+          { key: "agency", value: (x) => x.rec.name },
+          { key: "agency_type", value: (x) => x.rec.type },
+          { key: "county", value: (x) => x.rec.county },
+          { key: "class", value: (x) => x.rec.class },
+          { key: "basis", value: (x) => x.rec.basis },
+          { key: "basis_note", value: (x) => x.rec.basis_note },
+          { key: "resident_share_2020", value: (x) => x.d.share },
+          { key: "area_share", value: (x) => x.d.area_share },
+          { key: "edge", value: (x) => (x.d.edge ? "yes" : "") },
+          { key: "release_names", value: (x) => x.pub?.names.map((e) => e.name).join("; ") || "" },
+          { key: "figures", value: (x) => x.pub?.figures ?? "" },
+          { key: "fiscal_years_with_figures", value: (x) => x.pub?.years.join("; ") || "" },
+          { key: "latest_fy", value: (x) => x.pub?.years.at(-1) || "" },
+          { key: "whole_agency_sum_of_primary_rows_usd", value: (x) => (x.pub ? cents(x.pub.sum) : "") },
+          { key: "district_sum_note", value: () => DISTRICT_SUM_TIP },
+        ],
+      };
+    }
+    return {
+      view, label: `${CHAMBER[ch].word} districts`, base: `${CHAMBER[ch].csv} districts`, rows: districtRows(agg, ch), filters, note: DISTRICT_SUM_TIP,
+      columns: [
+        { key: "n", label: "District", kind: "link", value: (r) => siteLink(r.label, { view: "districts", dch: ch === "ad" ? "" : ch, dn: String(r.n) }) },
+        { key: "counties", label: "Counties touched", value: (r) => r.counties.join(", ") },
+        { key: "muni", label: "Cities and counties touching", kind: "int", value: (r) => r.muni },
+        { key: "muniFig", label: "Of those with published figures", kind: "int", value: (r) => r.muniFig },
+        { key: "school", label: "School districts touching", kind: "int", value: (r) => r.school },
+        { key: "special", label: "Special districts touching (mapped only)", kind: "int", value: (r) => r.special },
+        { key: "figures", label: "Published figures of touching agencies", kind: "int", value: (r) => r.figures },
+        { key: "sum", label: "Sum of primary rows", kind: "usd", value: (r) => (r.withFigures ? r.sum : null) },
+      ],
+      csv: [
+        { key: "chamber", value: () => CHAMBER[ch].csv },
+        { key: "district", value: (r) => r.n },
+        { key: "counties_touched", value: (r) => r.counties.join("; ") },
+        { key: "cities_and_counties_touching", value: (r) => r.muni },
+        { key: "of_those_with_published_figures", value: (r) => r.muniFig },
+        { key: "school_districts_touching", value: (r) => r.school },
+        { key: "special_districts_touching_mapped", value: (r) => r.special },
+        { key: "published_figures", value: (r) => r.figures },
+        { key: "whole_agency_sum_of_primary_rows_usd", value: (r) => (r.withFigures ? cents(r.sum) : "") },
+        { key: "district_sum_note", value: () => DISTRICT_SUM_TIP },
+        { key: "page_url", value: (r) => siteHref({ view: "districts", dch: ch === "ad" ? "" : ch, dn: String(r.n) }) },
+      ],
+    };
+  }
+  if (LIB_VIEWS.includes(view)) {
+    const provider = exportProviders.get(view);
+    if (!provider) return null;
+    const x = await provider({ page });
+    if (!x) return null;
+    const agency = typeof x.agency === "function" ? (row) => { const a = x.agency(row); return Array.isArray(a) ? a : [a]; } : null;
+    const columns = x.columns || [];
+    return {
+      view, label: x.label || VIEW_LABEL[view], base: x.base || x.label || view,
+      rows: x.rows || [], columns, csv: x.csv || columns, filters: x.filters || [],
+      agency, intro: x.intro, note: x.note, subtitle: x.subtitle || "", empty: x.empty || "",
+    };
+  }
+  return null;
+}
+
+// ------------------------------------------------------------ menu
+
+let downloadMenu = null;
+
+function renderExportButton() {
+  const b = $("export-btn");
+  if (!b) return;
+  b.hidden = !DATA_VIEWS.includes(state.view);
+  if (downloadMenu && downloadMenu.dataset.view !== state.view) closeDownloadMenu(false);
+}
+
+function closeDownloadMenu(focus = true) {
+  if (!downloadMenu) return;
+  downloadMenu.remove();
+  downloadMenu = null;
+  document.removeEventListener("pointerdown", onDownloadOutside, true);
+  window.removeEventListener("resize", onDownloadResize);
+  const b = $("export-btn");
+  b.setAttribute("aria-expanded", "false");
+  if (focus) b.focus();
+}
+
+function onDownloadOutside(ev) {
+  if (!downloadMenu || downloadMenu.contains(ev.target) || $("export-btn").contains(ev.target)) return;
+  closeDownloadMenu(false);
+}
+
+function onDownloadResize() {
+  if (downloadMenu) placeDownloadMenu();
+}
+
+// Right-aligned with the button, but kept on screen when the header wraps
+// it to the left on a phone.
+function placeDownloadMenu() {
+  const r = $("export-btn").getBoundingClientRect();
+  const vw = document.documentElement.clientWidth;
+  const w = downloadMenu.offsetWidth;
+  downloadMenu.style.top = `${Math.round(r.bottom + 4)}px`;
+  downloadMenu.style.left = `${Math.round(Math.max(8, Math.min(r.right - w, vw - w - 8)))}px`;
+}
+
+function toggleDownloadMenu() {
+  if (downloadMenu) closeDownloadMenu();
+  else openDownloadMenu();
+}
+
+const csvLabel = (n) => `CSV of this tab (${fmtInt(n)} row${n === 1 ? "" : "s"})`;
+
+function openDownloadMenu() {
+  if (!model) return;
+  closeFilterBox({ focus: false });
+  const view = state.view;
+  const csvItem = el("button", { type: "button", role: "menuitem", class: "dl-item", text: "CSV of this tab (…)", disabled: true });
+  const reportItem = el("button", {
+    type: "button", role: "menuitem", class: "dl-item", text: "HTML report…",
+    onclick: () => { closeDownloadMenu(false); openReportDialog(); },
+  });
+  // The status line is a live region beside the menu, not one of its items.
+  const status = el("p", { class: "dl-status muted", role: "status" });
+  const items = () => [...downloadMenu.querySelectorAll(".dl-item:not(:disabled)")];
+  const menu = el("div", { class: "dl-menu-items", role: "menu", "aria-label": "Download" }, csvItem, reportItem);
+  downloadMenu = el("div", {
+    class: "dl-menu", dataset: { view },
+    onkeydown: (ev) => {
+      const list = items();
+      const i = list.indexOf(document.activeElement);
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); closeDownloadMenu(); }
+      // The menu sits at the end of the page, so Tab goes on from the button
+      // as if the menu were not there.
+      else if (ev.key === "Tab") {
+        $("export-btn").focus();
+        closeDownloadMenu(false);
+      }
+      else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        const step = ev.key === "ArrowDown" ? 1 : -1;
+        list[(i + step + list.length) % list.length]?.focus();
+      } else if (ev.key === "Home" || ev.key === "End") {
+        ev.preventDefault();
+        list[ev.key === "Home" ? 0 : list.length - 1]?.focus();
+      }
+    },
+  }, menu, status);
+  document.body.append(downloadMenu);
+  placeDownloadMenu();
+  $("export-btn").setAttribute("aria-expanded", "true");
+  document.addEventListener("pointerdown", onDownloadOutside, true);
+  window.addEventListener("resize", onDownloadResize);
+  reportItem.focus();
+  const open = downloadMenu;
+  tabExport(view).then((x) => {
+    if (downloadMenu !== open) return;
+    const n = x ? x.rows.length : 0;
+    csvItem.textContent = x ? csvLabel(n) : "CSV of this tab";
+    csvItem.disabled = !n;
+    csvItem.title = !x ? "This tab has no rows to download yet" : n ? `${x.label}: every row under this tab's filters` : x.empty || "No rows match this tab's filters";
+    csvItem.onclick = () => downloadCsv(x, csvItem, status);
+    if (n) csvItem.focus();
+  }).catch((err) => {
+    if (downloadMenu !== open) return;
+    csvItem.textContent = "CSV of this tab";
+    csvItem.title = `Could not read this tab: ${err.message}`;
+    status.textContent = `Could not read this tab: ${err.message}`;
+  });
+}
+
+// Under the district filter a CSV says so in every row, with the overlap
+// caveat, and its filename names the districts. The Districts tab lists
+// every district, so it takes neither.
+function districtFilterCsv(x) {
+  if (!(state.ad || state.sd) || x.view === "districts") return { cols: [], base: x.base };
+  const words = districtFilterWords().map((f) => `${f.label} ${f.value}`).join("; ");
+  const tag = CHAMBERS.filter((ch) => state[ch]).map((ch) => {
+    const vals = splitChoice(state[ch]);
+    return `${CHAMBER[ch].short} ${vals.length > 3 ? `${vals.length} districts` : vals.map((v) => (v === NONE ? "not mapped" : v)).join(" ")}`;
+  }).join(" ");
+  return {
+    cols: [
+      { key: "district_filter", value: () => words },
+      { key: "district_caveat", value: () => `${districtCaveat()} ${DISTRICT_APPROX}` },
+    ],
+    base: `${x.base} ${tag}`,
+  };
+}
+
+async function downloadCsv(x, item, status) {
+  item.disabled = true;
+  status.textContent = "Preparing…";
+  try {
+    let cols = x.csv || x.columns;
+    if (x.agency) {
+      await ensureDistricts();
+      cols = [...cols, ...districtCsvColumns(x.agency)];
+    }
+    const dist = districtFilterCsv(x);
+    cols = [...cols, ...dist.cols];
+    downloadText(csvText(cols, x.rows), exportFilename(dist.base, "csv"), "text/csv");
+    closeDownloadMenu();
+  } catch (err) {
+    item.disabled = false;
+    status.textContent = `Download failed: ${err.message}`;
+  }
+}
+
+// ------------------------------------------------------------ report
+
+// district names the district filter in force ("" for none).
+const REPORT_TEXT = (district) => `One file with key statistics and a table for each tab ticked, each under its own filters${district ? ` and the district filter, ${district} (except Districts, which lists every district)` : ""}. The statistics are worked out from the ticked tabs and say which rows they count. A table stops at ${fmtInt(REPORT_ROW_CAP)} rows; the CSV of a tab holds every row. Data rows only; links go to mfa.amyc.us and the publisher's copy.`;
+
+function openReportDialog() {
+  const here = state.view;
+  const boxes = REPORT_TABS.map((v) => el("label", { class: "rd-tab" },
+    el("input", { type: "checkbox", name: "report-tab", value: v, checked: v === here }), ` ${VIEW_LABEL[v]}`));
+  const capNote = el("p", { class: "rd-cap", hidden: true });
+  const progress = el("p", { class: "rd-progress muted", role: "status", "aria-live": "polite" });
+  const go = el("button", { class: "btn primary", type: "button", text: "Download" });
+  const cancel = el("button", { class: "btn", type: "button", text: "Cancel" });
+  const dialog = el("div", { class: "report-dialog", role: "dialog", "aria-modal": "true", tabindex: "-1", "aria-labelledby": "rd-title", "aria-describedby": "rd-desc" },
+    el("h2", { id: "rd-title", text: "HTML report" }),
+    el("p", { id: "rd-desc", class: "muted", text: REPORT_TEXT(districtFilterWords().map((f) => `${f.label} ${f.value}`).join("; ")) }),
+    el("fieldset", { class: "rd-tabs" }, el("legend", { text: "Tabs" }), boxes),
+    capNote,
+    progress,
+    el("div", { class: "rd-actions" }, cancel, go));
+  const backdrop = el("div", { class: "report-backdrop" }, dialog);
+  const app = $("app");
+  const ticked = () => [...dialog.querySelectorAll("input[name=report-tab]:checked")].map((n) => n.value);
+
+  // Escape and Tab are heard on the whole document, so a click on the
+  // dialog's text never leaves them behind; the page behind is inert.
+  const onKey = (ev) => {
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      close();
+      return;
+    }
+    if (ev.key !== "Tab") return;
+    const f = [...dialog.querySelectorAll("button, input, a[href]")].filter((n) => !n.disabled);
+    if (!f.length) return;
+    const at = document.activeElement;
+    if (!dialog.contains(at) || at === dialog) {
+      ev.preventDefault();
+      (ev.shiftKey ? f[f.length - 1] : f[0]).focus();
+    } else if (ev.shiftKey && at === f[0]) {
+      ev.preventDefault();
+      f[f.length - 1].focus();
+    } else if (!ev.shiftKey && at === f[f.length - 1]) {
+      ev.preventDefault();
+      f[0].focus();
+    }
+  };
+  const close = () => {
+    document.removeEventListener("keydown", onKey, true);
+    backdrop.remove();
+    if (app) app.inert = false;
+    $("export-btn")?.focus();
+  };
+
+  // A tab over the row cap is named before the download. Counting a lib tab
+  // loads its file, which the report would need anyway.
+  const counts = new Map();
+  const rowCount = (v) => {
+    if (!counts.has(v)) counts.set(v, tabExport(v, { page: v === here }).then((x) => (x ? x.rows.length : 0), () => 0));
+    return counts.get(v);
+  };
+  let capRun = 0;
+  const syncCap = async () => {
+    const run = ++capRun;
+    const views = ticked();
+    const ns = await Promise.all(views.map(rowCount));
+    if (run !== capRun || !backdrop.isConnected) return;
+    const over = views.map((v, i) => [v, ns[i]]).filter(([, n]) => n > REPORT_ROW_CAP);
+    capNote.hidden = !over.length;
+    capNote.textContent = over.length
+      ? `${over.map(([v, n]) => `${VIEW_LABEL[v]} has ${fmtInt(n)} rows`).join(" and ")}; ${over.length === 1 ? "its report table stops" : "their report tables stop"} at ${fmtInt(REPORT_ROW_CAP)}. Download the CSV of ${over.length === 1 ? "the tab" : "each tab"} for every row.`
+      : "";
+  };
+  const sync = () => {
+    go.disabled = !ticked().length;
+    syncCap();
+  };
+  dialog.addEventListener("change", sync);
+  cancel.addEventListener("click", close);
+  backdrop.addEventListener("pointerdown", (ev) => { if (ev.target === backdrop) close(); });
+  document.addEventListener("keydown", onKey, true);
+  go.addEventListener("click", async () => {
+    const views = ticked();
+    // Focus stays in the dialog while Download is disabled.
+    dialog.focus();
+    go.disabled = true;
+    try {
+      const html = await buildReport(views, (msg) => { progress.textContent = msg; });
+      downloadText(html, exportFilename("report", "html"), "text/html");
+      close();
+    } catch (err) {
+      console.error(err);
+      progress.textContent = `Report failed: ${err.message}`;
+      go.disabled = false;
+      go.focus();
+    }
+  });
+  document.body.append(backdrop);
+  if (app) app.inert = true;
+  sync();
+  (dialog.querySelector("input:checked") || dialog.querySelector("input") || go).focus();
+}
+
+// One clause per chamber: "Agencies touching Assembly District 53", "Agencies
+// not mapped to an Assembly district", or both joined with "or".
+function districtSubtitle() {
+  const clauses = CHAMBERS.filter((ch) => state[ch]).map((ch) => {
+    const vals = splitChoice(state[ch]);
+    const named = vals.filter((v) => v !== NONE);
+    const word = CHAMBER[ch].word;
+    return [
+      named.length ? `touching ${CHAMBER[ch].label}${named.length > 1 ? "s" : ""} ${named.join(", ")}` : "",
+      vals.includes(NONE) ? `not mapped to ${/^[AEIOU]/.test(word) ? "an" : "a"} ${word} district` : "",
+    ].filter(Boolean).join(" or ");
+  });
+  return clauses.length ? `Agencies ${clauses.join(" and ")}` : "";
+}
+
+async function buildReport(views, progress) {
+  const tabs = [];
+  const xs = [];
+  const district = districtFilterWords();
+  const filters = [...district];
+  for (const v of views) {
+    progress(`Reading ${VIEW_LABEL[v]}…`);
+    // The open tab comes as it is shown, so an agency or fee page gives that
+    // agency's rows, as its CSV does; the other tabs give their lists.
+    const x = await tabExport(v, { page: v === state.view });
+    if (!x) {
+      // A ticked tab is never dropped without a word.
+      tabs.push({ key: v, label: VIEW_LABEL[v], intro: "This tab had no rows to report.", columns: [], rows: [], empty: "No rows." });
+      continue;
+    }
+    xs.push(x);
+    const words = x.filters || [];
+    for (const f of words) filters.push({ label: `${VIEW_LABEL[v]} › ${f.label}`, value: f.value });
+    // Every tab but Districts applies the district filter; Districts lists
+    // every district, and says so.
+    const all = v === "districts";
+    const scope = all ? words : [...district, ...words];
+    const intro = [
+      x.intro,
+      scope.length ? `Filtered to ${scope.map((f) => `${f.label}: ${f.value}`).join("; ")}.` : "No filters on this tab.",
+      all && district.length ? "Lists every district; the district filter does not apply to this tab." : "",
+    ].filter(Boolean).join(" ");
+    tabs.push({
+      key: v, label: v === state.view && x.subtitle ? x.label : VIEW_LABEL[v], intro, note: x.note, empty: x.empty,
+      columns: x.columns, rows: x.rows.slice(0, REPORT_ROW_CAP), total: x.rows.length,
+    });
+  }
+  progress("Working out key statistics…");
+  const stats = await reportStats(xs);
+  progress("Writing the file…");
+  const caveats = [];
+  // The overlap caveat goes wherever a district filter or list is in the report.
+  if (state.ad || state.sd || xs.some((x) => x.view === "districts")) caveats.push(districtCaveat(), DISTRICT_APPROX, districts?.meta.plan_note || "");
+  caveats.push(...stats.caveats, SUM_CAVEAT);
+  const cut = tabs.filter((t) => t.total > t.rows.length).map((t) => t.label);
+  if (cut.length) {
+    caveats.push(`The ${cut.join(" and ")} ${cut.length === 1 ? "table stops" : "tables stop"} at ${fmtInt(REPORT_ROW_CAP)} rows; the key statistics count every row, and the CSV of a tab holds them all.`);
+  }
+  const open = xs.find((x) => x.view === state.view && x.subtitle);
+  // The report header already names the database above the title.
+  return reportHtml({
+    title: "Impact fee report",
+    subtitle: [open?.subtitle, districtSubtitle()].filter(Boolean).join("; "),
+    generated_utc: new Date().toISOString(),
+    release: cfg.local ? "local files" : cfg.ref,
+    permalink: sitePermalink(),
+    filters,
+    caveats: caveats.filter(Boolean),
+    stats: stats.tiles,
+    stats_scope: stats.scope,
+    tabs,
+  });
+}
+
+// Key statistics, worked out from the report's own rows so they agree with
+// its tables: the figures of the open agency or fee page, else of the
+// Figures tab, else of the jurisdictions or fees listed. With no ticked tab
+// that lists figures they cover the whole release under the district filter
+// (a district page counts as one). Roster tiles come from the Coverage tab,
+// or from the whole roster when the figures do. scope says what was counted.
+async function reportStats(xs) {
+  const by = new Map(xs.map((x) => [x.view, x]));
+  const open = by.get(state.view);
+  const figTab = open?.figures ? open : xs.find((x) => x.figures);
+  const listTab = figTab ? null : by.get("entities") || by.get("fees");
+  const whole = !figTab && !listTab;
+  const df = open?.district || { ad: state.ad, sd: state.sd };
+  const districted = Boolean(df.ad || df.sd);
+  if (districted) await ensureDistricts();
+  const test = districtTest(df);
+  let figs;
+  let from;
+  if (figTab) {
+    figs = figTab.rows;
+    from = figTab.scope;
+  } else if (listTab) {
+    figs = listTab.rows.flatMap((r) => r.figures);
+    from = listTab.view === "entities" ? "the figures of the jurisdictions on the Jurisdictions tab, under its filters" : "the figures of the fees on the Fees tab, under its filters";
+  } else {
+    figs = test ? model.figures.filter((f) => test(...releaseWhere(f.entity))) : model.figures;
+    const who = open?.district ? `every agency touching ${open.label}` : districted ? "every agency under the district filter" : "";
+    from = `${who ? `the figures of ${who} across` : ""} the whole release (no ticked tab lists figures, so the tabs' own filters do not apply)`.trim();
+  }
+  const sum = summarize(figs);
+  const tiles = [];
+  const caveats = [];
+
+  const covTab = by.get("coverage");
+  const cov = covTab || whole ? await loadCoverage().catch((err) => { console.warn(err); return null; }) : null;
+  let roster = null;
+  if (covTab) roster = covTab.rows;
+  else if (whole && cov) roster = test ? cov.agencies.filter((a) => test(a.name, { type: a.type, county: a.county })) : cov.agencies;
+  // Under a district filter without "(not mapped)", only agencies with a
+  // mapped boundary can pass, which leaves most special districts out.
+  const mappedOnly = districtMappedOnly(df);
+  if (roster) {
+    for (const c of cov.classes) {
+      tiles.push({ label: `${c.label} in scope`, value: roster.filter((a) => a.cls === c.key).length, kind: "int", note: mappedOnly ? "Mapped agencies on the coverage roster" : "On the coverage roster" });
+    }
+    if (mappedOnly) caveats.push(`Roster counts under the district filter hold only agencies with a mapped boundary. ${unmappedRosterText(cov)}`);
+  }
+  tiles.push({ label: "Jurisdictions with published figures", value: sum.entities, kind: "int" });
+  tiles.push({ label: "Published figures", value: sum.count, kind: "int" });
+  const sources = by.get("sources");
+  if (sources) tiles.push({ label: "Reports", value: sources.rows.length, kind: "int", note: "Listed on the Sources tab" });
+  else if (whole) tiles.push({ label: "Reports", value: test ? model.sources.filter((s) => test(...releaseWhere(s.receiving_entity))).length : model.sources.length, kind: "int", note: "Publications in the release" });
+  else tiles.push({ label: "Reports", value: new Set(figs.map((f) => f.primary.source_id).filter(Boolean)).size, kind: "int", note: "That these figures come from" });
+  tiles.push({
+    label: "Fiscal years", kind: "text",
+    value: sum.firstYear ? `FY ${fmtFy(sum.firstYear)}${sum.lastYear !== sum.firstYear ? ` to ${fmtFy(sum.lastYear)}` : ""}` : "",
+  });
+  tiles.push({
+    label: "Sum of primary rows", kind: "usd", value: sum.count ? sum.sum : null,
+    note: districted ? "Whole-agency totals; agencies count in every district they touch" : whole ? "Every published primary row; not all California fees" : "Primary rows of the figures counted",
+  });
+  if (roster) {
+    const want = ["2022-23", "2023-24", "2024-25"].map((y) => cov.years.indexOf(y)).filter((i) => i >= 0);
+    const muni = roster.filter((a) => a.cls === "municipal");
+    let processed = 0;
+    let harvested = 0;
+    for (const a of muni) {
+      for (const i of want) {
+        const b = 1 << i;
+        if (a.p & b || a.nofee) processed += 1;
+        if (a.h & b || a.nofee) harvested += 1;
+      }
+    }
+    const slots = muni.length * want.length;
+    tiles.push({
+      label: "FY 2022-23 to 2024-25 processed, cities and counties", kind: "pct", value: slots ? processed / slots : null,
+      note: `${fmtInt(processed)} of ${fmtInt(slots)} jurisdiction-years; ${fmtInt(harvested)} harvested`,
+    });
+  }
+  if (state.ad || state.sd) {
+    const n = CHAMBERS.reduce((k, ch) => k + splitChoice(state[ch]).filter((v) => v !== NONE).length, 0);
+    tiles.push({ label: "Districts in the filter", value: n, kind: "int", note: districtFilterWords().map((f) => f.value).join("; ") });
+  }
+  const scope = [`Counted from ${from}.`];
+  if (roster) scope.push(covTab ? "Roster counts come from the Coverage tab, under its filters." : `Roster counts cover the whole coverage roster${districted ? " under the district filter" : ""}.`);
+  return { tiles, caveats, scope: scope.join(" ") };
+}
+
+// ------------------------------------------------------------ lib views
+// What lib views take from ctx besides their own helpers: the filter boxes,
+// the district filter and the downloads. permitsCtx and the funds and
+// schedules ctx all spread libCtx(); the old select and chip still work.
+//   filterBoxButton(spec), colFilterButton(spec), facetOptions(rows, valueFn,
+//     labelFn, {include}), refreshFilterBoxes(root), boxSummary(spec, raw) and
+//     filterTag(label, onRemove) are the filter box helpers.
+//   districtFilter() gives {ad, sd}; setDistrictFilter(ch, v) sets one.
+//   districtSpecs(rowsFn, agencyFn) and districtBoxes(rowsFn, agencyFn) give
+//     the AD and SD box specs or buttons; agencyFn(row) returns a name or
+//     [name, {type, county}].
+//   districtsFor(name, opts) is the crosswalk record, or null until loaded.
+//   rowPassesDistricts(name, opts) tests the current ad and sd; before the
+//     file loads only "(not mapped)" passes, so await ensureDistricts().
+//   ensureDistricts() loads districts.json once; districtsLoaded() says if
+//     it has. districtTags() and districtNote() go in the result bar;
+//     districtCaveat() and caveat are the overlap caveat text.
+//   clearDistrictFilter() empties ad and sd without a render, for a tab's
+//     Clear that then renders once.
+//   siteHref(params) and siteLink(text, params) point at the public site,
+//     for CSV page_url columns and report links.
+// Each lib view also exports its downloads (exportFunds, exportSchedules,
+// exportPermits), which exportProviders calls with a fresh ctx. They take
+// {page} and return {label, columns, rows, csv?, filters?, agency?, intro?,
+// note?, base?, subtitle?, empty?}; page is false for a report tab that is
+// not the open one, which wants the tab's list rather than one agency's
+// page. filters are {label, value} pairs; agency(row) gives a name or
+// [name, {type, county}] for the four district columns of the CSV; empty
+// says why there are no rows.
+
+function districtSpecs(rowsFn, agencyFn) {
+  const agency = (row) => {
+    const a = agencyFn(row);
+    return Array.isArray(a) ? a : [a];
+  };
+  return CHAMBERS.map((ch) => makeSpec(ch, districtDef(ch, agency), {
+    filter: () => ({ ad: state.ad, sd: state.sd }),
+    rows: (f) => {
+      const list = rowsFn() || [];
+      const test = districtTest(f);
+      return test ? list.filter((r) => test(...agency(r))) : list;
+    },
+    apply: (k, v) => setFilter(state.view, k, v),
+  }));
+}
+
+function districtTags() {
+  return CHAMBERS.filter((ch) => state[ch]).map((ch) => filterTag(`${CHAMBER[ch].box}: ${splitChoice(state[ch]).map((v) => districtLabel(ch, v)).join(" or ")}`,
+    () => setFilter(state.view, ch, "")));
+}
+
+function libCtx() {
+  return {
+    filterBoxButton, colFilterButton, facetOptions, refreshFilterBoxes, boxSummary, filterTag,
+    districtFilter: () => ({ ad: state.ad, sd: state.sd }),
+    setDistrictFilter: (ch, v) => setFilter(state.view, ch, v),
+    districtSpecs,
+    districtBoxes: (rowsFn, agencyFn) => districtSpecs(rowsFn, agencyFn).map(filterBoxButton),
+    districtsFor: (name, opts) => (districts ? districts.lookup(name, opts) : null),
+    rowPassesDistricts,
+    ensureDistricts,
+    districtsLoaded: () => Boolean(districts),
+    districtTags,
+    districtNote,
+    districtCaveat,
+    caveat: districtCaveat(),
+    clearDistrictFilter: () => {
+      state.ad = "";
+      state.sd = "";
+      resetPages();
+    },
+    siteHref,
+    siteLink,
+  };
 }
 
 // ============================================================ WIRING
@@ -2920,7 +4519,7 @@ function openView(view) {
 
 function wire() {
   $("loading-retry").addEventListener("click", () => boot());
-  $("export-btn").addEventListener("click", exportCsv);
+  $("export-btn").addEventListener("click", toggleDownloadMenu);
   for (const a of document.querySelectorAll(".view-tab")) {
     a.addEventListener("click", (e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
@@ -2930,6 +4529,8 @@ function wire() {
     });
   }
   window.addEventListener("popstate", () => {
+    closeFilterBox({ focus: false });
+    closeDownloadMenu(false);
     readState();
     renderAll();
   });
