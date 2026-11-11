@@ -1511,9 +1511,10 @@ PLAN = "2021 Citizens Redistricting Commission maps (Assembly and Senate), in ef
 PLAN_NOTE = ("Fiscal years before 2022-23 were collected while the 2011 maps were in force; the filter always uses the "
              "current 2021 maps. Senate terms are staggered, and every Senate seat has been elected on the 2021 map "
              "since the 2024 election.")
-CAVEAT = ("Each agency is listed under every Assembly and Senate district its territory reaches, even by a small part "
-          "(for a special district, a part that holds a 2020 census block or is over 100 meters wide), so many appear "
-          "under more than one district and district totals overlap.")
+CAVEAT = ("An agency counts in an Assembly or Senate district when at least 1% of its 2020 residents live there (an "
+          "agency with no residents counts in every district its territory reaches); districts it touches with fewer "
+          "residents are shown as edge contacts but left out of filters and totals, and many agencies still count in "
+          "more than one district, so district totals overlap.")
 SOURCE = ("District boundaries: Census TIGER/Line 2026 state legislative districts, which match the Commission's final "
           "maps. Agency boundaries: TIGER/Line 2026 incorporated places, counties and school districts; CAL FIRE, CSDA, "
           "DWR and county layers for special districts (see legislative/sources.csv). Population: 2020 census blocks "
