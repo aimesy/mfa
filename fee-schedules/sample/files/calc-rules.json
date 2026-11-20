@@ -1,0 +1,617 @@
+{
+  "_about": "Which verified schedule rows apply to each prototype, per agency, and how. calc_per_unit.py reads this with prototypes.json. Methods: per_unit = rate; per_sq_ft = rate x unit_sq_ft; meter_each_unit = rate for one meter per unit; meter_shared = rate / units_on_site; lower_bound = computed but the true charge can be higher (total marked incomplete). own_programs_missing: the agency charges a program whose schedule we lack, so every total is incomplete.",
+  "City of Paso Robles": {
+    "townhome_class": "residential_single_family",
+    "townhome_note": "Policy 1 puts town homes and condominium units in Single Family.",
+    "default_tier": "Transportation Area A (lowest); Area B and C rows shown in flags",
+    "school_passthrough": false,
+    "lines": {
+      "detached_house": [
+        [
+          "paso-robles-p1-001",
+          "per_unit",
+          "Area A; Area B $4,921, Area C $12,723"
+        ],
+        [
+          "paso-robles-p1-004",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-005",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-006",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-007",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-008",
+          "per_unit"
+        ]
+      ],
+      "townhome": [
+        [
+          "paso-robles-p1-001",
+          "per_unit",
+          "Area A; Area B $4,921, Area C $12,723; townhome classed Single Family per Policy 1"
+        ],
+        [
+          "paso-robles-p1-004",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-005",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-006",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-007",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-008",
+          "per_unit"
+        ]
+      ],
+      "apartment": [
+        [
+          "paso-robles-p1-009",
+          "per_unit",
+          "Area A; Area B $3,391, Area C $8,768; 2 BR 1,000 sq ft is not a One Bedroom or Studio unit"
+        ],
+        [
+          "paso-robles-p1-012",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-013",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-014",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-015",
+          "per_unit"
+        ],
+        [
+          "paso-robles-p1-016",
+          "per_unit"
+        ]
+      ]
+    },
+    "not_computed": {},
+    "missing_programs": [
+      "water and sewer connection or capacity fees (separate city schedule, not in our files)",
+      "school fees (set by Paso Robles Joint Unified, not passed through here)"
+    ],
+    "own_programs_missing": "city water and sewer connection fees are set on a separate schedule that is not in our files"
+  },
+  "County of Stanislaus": {
+    "townhome_class": "residential_multifamily",
+    "townhome_note": "Ambiguous: the table prints only Single Family / Duplex and Multifamily / Mobile Home; a 20 du/acre attached row of townhomes is classed Multifamily.",
+    "default_tier": "Unincorporated (Table 7)",
+    "school_passthrough": false,
+    "lines": {
+      "detached_house": [
+        [
+          "stanislaus-county-p22-001",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-002",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-003",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-004",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-005",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-006",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-007",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-008",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-009",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-010",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-011",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-012",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-013",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-014",
+          "per_unit"
+        ]
+      ],
+      "townhome": [
+        [
+          "stanislaus-county-p22-015",
+          "per_unit",
+          "townhome classed Multifamily (ambiguous)"
+        ],
+        [
+          "stanislaus-county-p22-016",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-017",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-018",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-019",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-020",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-021",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-022",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-023",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-024",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-025",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-026",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-027",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-028",
+          "per_unit"
+        ]
+      ],
+      "apartment": [
+        [
+          "stanislaus-county-p22-015",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-016",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-017",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-018",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-019",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-020",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-021",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-022",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-023",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-024",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-025",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-026",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-027",
+          "per_unit"
+        ],
+        [
+          "stanislaus-county-p22-028",
+          "per_unit"
+        ]
+      ]
+    },
+    "not_computed": {},
+    "missing_programs": [
+      "rates are the June 30, 2018 schedule printed in the FY2017-18 annual report; a newer adopted schedule is not in our files",
+      "water, sewer and drainage charges of the serving district (not county programs)",
+      "school fees (set by school districts)"
+    ]
+  },
+  "City of Brentwood": {
+    "townhome_class": "residential_multifamily",
+    "townhome_note": "Program defines Single Family as 8 units or less per acre and Multi-Family as more than 8 units per acre; the townhome prototype is 20 du/acre.",
+    "default_tier": "Outside the CCWD Los Vaqueros service area",
+    "school_passthrough": false,
+    "lines": {
+      "detached_house": [
+        [
+          "brentwood-p9-001",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-006",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-011",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-013",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-018",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-023",
+          "per_unit",
+          "outside CCWD LV area; inside it the water row is $16,081.38"
+        ],
+        [
+          "brentwood-p9-033",
+          "per_unit"
+        ]
+      ],
+      "townhome": [
+        [
+          "brentwood-p9-002",
+          "per_unit",
+          "townhome classed Multi-Family by density (more than 8 du/acre)"
+        ],
+        [
+          "brentwood-p9-007",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-012",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-014",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-019",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-024",
+          "per_unit",
+          "outside CCWD LV area; inside it the water row is $6,596.50"
+        ],
+        [
+          "brentwood-p9-034",
+          "per_unit"
+        ]
+      ],
+      "apartment": [
+        [
+          "brentwood-p9-002",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-007",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-012",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-014",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-019",
+          "per_unit"
+        ],
+        [
+          "brentwood-p9-024",
+          "per_unit",
+          "outside CCWD LV area; inside it the water row is $6,596.50"
+        ],
+        [
+          "brentwood-p9-034",
+          "per_unit"
+        ]
+      ]
+    },
+    "not_computed": {
+      "detached_house": [
+        [
+          "Fire Facility Fee",
+          "still collected under Resolutions 98-85 and 2004-32 per the program report; no rate printed in our files"
+        ]
+      ],
+      "townhome": [
+        [
+          "Fire Facility Fee",
+          "still collected under Resolutions 98-85 and 2004-32 per the program report; no rate printed in our files"
+        ]
+      ],
+      "apartment": [
+        [
+          "Fire Facility Fee",
+          "still collected under Resolutions 98-85 and 2004-32 per the program report; no rate printed in our files"
+        ]
+      ]
+    },
+    "missing_programs": [
+      "Fire Facility Fee rate (not printed)",
+      "other agency: ECCRFFA regional transportation fee",
+      "other agency: Contra Costa County Flood Control fees",
+      "other agency: Brentwood Union and Liberty Union school fees",
+      "Areas of Additional Fees 1 to 3 (district reports, not printed)"
+    ]
+  },
+  "City of Redwood City": {
+    "townhome_class": "residential_single_family",
+    "townhome_note": "Ambiguous: page 14 groups townhouses with single family for the treatment capacity fee; pages 14, 17 and 22 do not define townhomes otherwise. Classed single family with its own 3/4 inch meter.",
+    "default_tier": "Transportation fee outside 1/2 mile of the Caltrain platform",
+    "school_passthrough": false,
+    "lines": {
+      "detached_house": [
+        [
+          "redwood-city-p14-001",
+          "per_unit"
+        ],
+        [
+          "redwood-city-p14-005",
+          "per_unit"
+        ],
+        [
+          "redwood-city-p17-001",
+          "meter_each_unit",
+          "single family row applies to meters 1 inch or smaller; prototype 1 inch meter"
+        ],
+        [
+          "redwood-city-p22-001",
+          "per_sq_ft",
+          "outside 1/2 mile of Caltrain; inside $2.00 per sq ft"
+        ]
+      ],
+      "townhome": [
+        [
+          "redwood-city-p14-001",
+          "per_unit",
+          "townhome classed single family (ambiguous); multi-family row is $2,333"
+        ],
+        [
+          "redwood-city-p14-005",
+          "per_unit",
+          "page 14 names townhouse dwellings"
+        ],
+        [
+          "redwood-city-p17-001",
+          "meter_each_unit",
+          "prototype 3/4 inch meter per unit; single family row covers 1 inch or smaller; if classed multi family the 3/4 inch row is $8,519.00"
+        ],
+        [
+          "redwood-city-p22-001",
+          "per_sq_ft",
+          "outside 1/2 mile of Caltrain; townhome classed single family (ambiguous); multi-family is $2.31"
+        ]
+      ],
+      "apartment": [
+        [
+          "redwood-city-p14-002",
+          "per_unit"
+        ],
+        [
+          "redwood-city-p14-006",
+          "per_unit"
+        ],
+        [
+          "redwood-city-p17-007",
+          "meter_shared",
+          "assumed one 3 inch master meter for 50 units (prototypes.json)"
+        ],
+        [
+          "redwood-city-p22-005",
+          "per_sq_ft",
+          "outside 1/2 mile of Caltrain; inside $1.43 per sq ft"
+        ]
+      ]
+    },
+    "not_computed": {
+      "detached_house": [
+        [
+          "Underground In-Lieu Fee",
+          "charged per linear foot of street frontage; frontage is not a prototype input and applicability depends on the subdivision"
+        ],
+        [
+          "Parks Impact Fee",
+          "rate set in a separate document not in our files"
+        ],
+        [
+          "Housing Impact Fee",
+          "rate set in a separate document not in our files"
+        ]
+      ],
+      "townhome": [
+        [
+          "Underground In-Lieu Fee",
+          "charged per linear foot of street frontage; frontage is not a prototype input"
+        ],
+        [
+          "Parks Impact Fee",
+          "rate set in a separate document not in our files"
+        ],
+        [
+          "Housing Impact Fee",
+          "rate set in a separate document not in our files"
+        ]
+      ],
+      "apartment": [
+        [
+          "Underground In-Lieu Fee",
+          "charged per linear foot of street frontage; frontage is not a prototype input"
+        ],
+        [
+          "Parks Impact Fee",
+          "rate set in a separate document not in our files"
+        ],
+        [
+          "Housing Impact Fee",
+          "rate set in a separate document not in our files"
+        ]
+      ]
+    },
+    "missing_programs": [
+      "Parks Impact Fee and Housing Impact Fee rates (separate published schedule, not in our files)",
+      "school fees (Redwood City School District and Sequoia Union HSD)"
+    ]
+  },
+  "City of Fortuna": {
+    "townhome_class": "residential_unspecified",
+    "townhome_note": "The schedule charges traffic fees per new dwelling and water by meter size; no single family or multifamily split is printed, so the class does not change any amount.",
+    "default_tier": "Citywide arterial and collector fee (outside the Home Avenue and Hillside Drive areas); inside city limits; not south of Drake Hill Road",
+    "school_passthrough": false,
+    "lines": {
+      "detached_house": [
+        [
+          "fortuna-p23-004",
+          "per_unit",
+          "Home Avenue area $4,275, Hillside Drive area $2,620 instead"
+        ],
+        [
+          "fortuna-p45-002",
+          "meter_each_unit",
+          "prototype 1 inch meter per unit; if the 1 inch size is needed only for fire sprinklers the printed residential rate is $2,774.20"
+        ],
+        [
+          "fortuna-p46-001",
+          "per_unit",
+          "lower_bound: base charge covers up to 14 fixture units; each added fixture unit is $452.00"
+        ]
+      ],
+      "townhome": [
+        [
+          "fortuna-p23-004",
+          "per_unit",
+          "Home Avenue area $4,275, Hillside Drive area $2,620 instead"
+        ],
+        [
+          "fortuna-p45-001",
+          "meter_each_unit",
+          "prototype 3/4 inch meter per unit, printed as 5/8 by 3/4 inch (1.0 LUE)"
+        ],
+        [
+          "fortuna-p46-001",
+          "per_unit",
+          "lower_bound: base charge covers up to 14 fixture units; each added fixture unit is $452.00"
+        ]
+      ],
+      "apartment": [
+        [
+          "fortuna-p23-004",
+          "per_unit",
+          "Home Avenue area $4,275, Hillside Drive area $2,620 instead"
+        ],
+        [
+          "fortuna-p45-005",
+          "meter_shared",
+          "assumed one 3 inch master meter for 50 units (prototypes.json)"
+        ],
+        [
+          "fortuna-p46-001",
+          "per_unit",
+          "lower_bound: one base charge per unit assumed; the schedule prices by fixture units per connection, so the building total depends on its fixture count"
+        ]
+      ]
+    },
+    "not_computed": {
+      "detached_house": [
+        [
+          "Development Review - Drainage Fee",
+          "$0.32 per sq ft of impervious surface on building permits; impervious area is not a prototype input"
+        ]
+      ],
+      "townhome": [
+        [
+          "Development Review - Drainage Fee",
+          "$0.32 per sq ft of impervious surface on building permits; impervious area is not a prototype input"
+        ]
+      ],
+      "apartment": [
+        [
+          "Development Review - Drainage Fee",
+          "$0.32 per sq ft of impervious surface on building permits; impervious area is not a prototype input"
+        ]
+      ]
+    },
+    "missing_programs": [
+      "no park, public facilities, police, fire or library impact fee printed (the schedule has none)",
+      "school fees (set by districts)"
+    ]
+  }
+}

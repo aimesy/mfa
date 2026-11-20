@@ -1,0 +1,59 @@
+{
+  "_about": "Model units for per-unit fee estimates. Single source of truth: calc_per_unit.py reads only this file. Set by Amy 2026-11-20 17:37Z; defaults relayed by the coordinator the same minute.",
+  "site": {
+    "acres": 1.0,
+    "note": "Project and acreage fees are computed for a 1 acre site and divided by the unit count."
+  },
+  "defaults": {
+    "construction": "market rate new construction",
+    "parcel": "vacant serviced infill parcel",
+    "credits": "none",
+    "affordable_exemptions": "none",
+    "school_fees": "separate line, state Level 1 rate, only where the agency passes it through"
+  },
+  "prototypes": [
+    {
+      "id": "detached_house",
+      "label": "Detached house",
+      "unit_sq_ft": 2000,
+      "bedrooms": 4,
+      "du_per_acre": 5,
+      "units_on_site": 5,
+      "land_sq_ft_per_unit": 8712,
+      "land_use_hint": "single family detached",
+      "water_meter_if_no_per_unit_rate": "1 inch, one per unit",
+      "lots_created": "one lot per unit already exists (no new parcel map charges)"
+    },
+    {
+      "id": "townhome",
+      "label": "Townhome",
+      "unit_sq_ft": 1500,
+      "bedrooms": 3,
+      "du_per_acre": 20,
+      "units_on_site": 20,
+      "land_sq_ft_per_unit": 2178,
+      "land_use_hint": "as the agency's schedule classes it (single family attached or multifamily); record which, flag if ambiguous",
+      "water_meter_if_no_per_unit_rate": "3/4 inch, one per unit",
+      "lots_created": "one lot per unit already exists (no new parcel map charges)"
+    },
+    {
+      "id": "apartment",
+      "label": "Apartment",
+      "unit_sq_ft": 1000,
+      "bedrooms": 2,
+      "du_per_acre": 50,
+      "units_on_site": 50,
+      "land_sq_ft_per_unit": 871,
+      "land_use_hint": "multifamily",
+      "water_meter_if_no_per_unit_rate": "share of one master meter sized by the agency's equivalency table",
+      "master_meter_size_assumed": "3 inch",
+      "master_meter_note": "Added 2026-11-20 by the fee worker: none of the sample schedules prints a sizing rule per dwelling unit, so one 3 inch domestic master meter is assumed for the 50 unit building and its meter charge is divided by 50. Flagged on every line that uses it."
+    }
+  ],
+  "flags": [
+    "every meter assumption",
+    "townhome class chosen",
+    "any fee whose basis the schedule leaves open (trip generation, case by case): not computed, total marked incomplete, never zero"
+  ],
+  "calc_notes_added": "Fields master_meter_size_assumed, master_meter_note and lots_created were added by the fee worker; all lead values are unchanged."
+}
