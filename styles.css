@@ -1144,3 +1144,20 @@ th .col-filter-btn[aria-expanded="true"]:not(.active) { background: var(--paper)
   .filter-tag button { min-width: 32px; min-height: 32px; }
   .district-caveat summary { display: inline-block; padding: 0.45rem 0; }
 }
+
+/* schedules: example homes (coverage-example style) */
+.sched-examples h3, .sched-all-fees { font-family: var(--font-serif); font-size: 1.1rem; margin: 1rem 0 0.3rem; }
+.sched-ex-intro { font-size: 0.8rem; margin: 0 0 0.6rem; }
+.sched-ex-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.8rem; }
+.sched-ex-card { border: 1px solid var(--rule, #ccc); border-radius: 6px; padding: 0.7rem 0.8rem; }
+.sched-ex-card h4 { font-family: var(--font-serif); font-size: 1.05rem; margin: 0; }
+.sched-ex-spec, .sched-ex-scen { font-size: 0.74rem; margin: 0.1rem 0 0.4rem; }
+.sched-ex-amount { font-family: var(--font-serif); font-size: 1.8rem; font-weight: 700; }
+.sched-ex-of { font-size: 0.8rem; }
+.sched-ex-school, .sched-ex-all { font-size: 0.8rem; margin: 0.2rem 0; }
+.sched-ex-lines { width: 100%; margin-top: 0.4rem; font-size: 0.78rem; }
+.sched-how, .sched-cond { font-size: 0.68rem; }
+.sched-ex-missing { font-size: 0.76rem; margin-top: 0.5rem; }
+.sched-ex-missing ul { margin: 0.2rem 0 0; padding-left: 1.1rem; }
+.sched-ex-summary td.num { font-size: 0.9rem; }
+.sched-partial { color: var(--ink-3); }

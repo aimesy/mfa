@@ -584,12 +584,12 @@ const fetchOk = (text) => async (p) => {
   await settle();
   assert.equal(byTag(content, "h2")[0].textContent, "Beta Water District");
   assert.equal(byClass(content, "schedules-head")[0].children[2].textContent, `${entityTypeLabel("special_district")} · 1 document · 1 row`);
-  assert.deepEqual(texts(byTag(content, "h3")), ["Water"]);
+  assert.deepEqual(texts(byTag(content, "h3")), ["All Beta Water District fees", "Water"]);
   assert.equal(byTag(content, "h4")[0].textContent, "Capacity Charge Capacity charge");
   const heads = texts(byTag(content, "th"));
-  assert.deepEqual(heads, ["Land use", "Conditions", "Rate", "Unit", "Basis", "Status", "Fund", "Authority", "Date", "Printed", "Evidence"]);
-  const cells = texts(byTag(content, "tbody")[0].children[0].children.slice(0, 9));
-  assert.deepEqual(cells, ["", "3/4 inch meter", "$0", "per meter", "By meter size", "Adopted", "Fund 100", "Section 66013", "January 1, 2029"]);
+  assert.deepEqual(heads, ["Applies to", "Amount", "Per", "Effective", "Printed", "Page"]);
+  const cells = texts(byTag(content, "tbody")[0].children[0].children.slice(0, 4));
+  assert.deepEqual(cells, ["3/4 inch meter", "$0", "per meter", "January 1, 2029"]);
 }
 
 {
@@ -598,10 +598,10 @@ const fetchOk = (text) => async (p) => {
   await settle();
   assert.equal(byClass(content, "schedules-head")[0].children[2].textContent,
     `${entityTypeLabel("city")} · Example County · 1 document · 3 rows`);
-  assert.deepEqual(texts(byTag(content, "h3")), ["Parks", "Transportation", "Drainage"]);
+  assert.deepEqual(texts(byTag(content, "h3")), ["All City of Alpha fees", "Parks", "Transportation", "Drainage"]);
   assert.deepEqual(texts(byClass(content, "schedules-table-name")), ["Table 1 Fee Schedule", "Table 1 Fee Schedule", "Table 2"]);
   const traffic = byClass(content, "schedules-program")[1];
-  assert.deepEqual(texts(byTag(traffic, "tbody")[0].children[0].children.slice(0, 5)), ["Other", "", "$300", "", "Basis not printed"]);
+  assert.deepEqual(texts(byTag(traffic, "tbody")[0].children[0].children.slice(0, 3)), ["Other", "$300", "Basis not printed"]);
 }
 
 // The caller's selection (the address bar) decides each render; onSelect hears changes first.
