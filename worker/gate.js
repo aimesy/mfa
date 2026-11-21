@@ -433,11 +433,20 @@ export async function chargeDocument(env, { session, address, key, cors, cfg, co
       }
       return { refusal: null, outcome: r.charged ? "counted" : "seen" };
     }
-    // No session: only while REQUIRE_SESSION is off (report only). The
-    // address carries the daily limit and the too fast rule on its own.
+    // No session: only while REQUIRE_SESSION is off. Readers open documents
+    // without any check; the address carries the daily limit and the too
+    // fast rule on its own. Opening more than RECHECK_DOCUMENTS_PER_MINUTE
+    // documents in a minute asks for a visible check (401, X-Check: visible);
+    // a reader who passes it continues on a session with the browser limits,
+    // and the address stays paused for sessionless requests meanwhile.
     const a = await counters.address(address).doc({ key, day, now, scope: "sessionless", limits: L });
     if (!a.ok) {
-      if (a.why === "fast" || a.why === "paused") return { refusal: tooFast(a.why === "fast" ? L.RECHECK_PAUSE_SECONDS : a.retryAfter, false), outcome: a.why };
+      if (a.why === "fast" || a.why === "paused") {
+        return {
+          refusal: plain(401, "Too many files at once. Pass the check to keep going.\n", { ...cors, "X-Check": "visible", [cfg.sessionHeader]: "needed" }),
+          outcome: a.why,
+        };
+      }
       return { refusal: fileLimit(a.retryAfter), outcome: "address" };
     }
     return { refusal: null, outcome: a.charged ? "counted" : "seen" };

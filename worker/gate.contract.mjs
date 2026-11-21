@@ -412,8 +412,9 @@ export async function checkGate(w) {
     assert.equal(wrong.headers.get("X-Trusted-Key"), "refused");
   }
 
-  // Report only (REQUIRE_SESSION not "true"): documents without a session
-  // are served, and the address carries the daily limit and too fast.
+  // REQUIRE_SESSION not "true": documents without a session are served with
+  // no check; the address carries the daily limit, and opening too fast asks
+  // for a visible check, after which a session continues.
   {
     const x = world({ REQUIRE_SESSION: "false", ADDRESS_DAILY_DOCUMENT_LIMIT: "3" });
     x.env = () => w.env({ REQUIRE_SESSION: "false", ADDRESS_DAILY_DOCUMENT_LIMIT: "3" });
@@ -432,9 +433,12 @@ export async function checkGate(w) {
     const c = browser("192.0.2.71", y);
     for (const i of [1, 2]) assert.equal((await c.get(w.document(i))).status, 200);
     const fast = await c.get(w.document(3));
-    assert.equal(fast.status, 429);
-    assert.equal(fast.headers.get("X-Limit"), "fast");
+    assert.equal(fast.status, 401, "too fast without a session asks for a check");
+    assert.equal(fast.headers.get("X-Check"), "visible");
     assert.equal((await c.get(w.index)).status, 200, "index files are not paused");
+    assert.equal((await c.get(w.document(3))).status, 401, "still paused without a session");
+    assert.equal((await c.session({ action: VISIBLE_ACTION })).status, 204, "the visible check gives a session");
+    assert.equal((await c.get(w.document(3))).status, 200, "a session continues past the sessionless pause");
   }
 
   // Valid and remembered trusted keys are exempt from ordinary admission.
