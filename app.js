@@ -826,7 +826,7 @@ const CHAMBERS = ["ad", "sd"];
 
 // The same words as districts.json's meta.caveat, for a box opened before
 // the file has loaded.
-const DISTRICT_CAVEAT = "Each agency is listed under every Assembly and Senate district its territory reaches, even by a small part (for a special district, a part that holds a 2020 census block or is over 100 meters wide), so many appear under more than one district and district totals overlap.";
+const DISTRICT_CAVEAT = "An agency counts in an Assembly or Senate district when at least 1% of its 2020 residents live there (an agency with no residents counts in every district its territory reaches); districts it touches with fewer residents are shown as edge contacts but left out of filters and totals, and many agencies still count in more than one district, so district totals overlap.";
 const districtCaveat = () => districts?.meta.caveat || DISTRICT_CAVEAT;
 const districtLabel = (ch, v) => (v === NONE ? "(not mapped)" : `${CHAMBER[ch].short} ${v}`);
 
@@ -1189,7 +1189,7 @@ function searchTag(q, onRemove) {
 // tap or the keyboard reaches it as well as a pointer. One element for every
 // place a district list or filter shows.
 const DISTRICT_APPROX = "A few agencies are placed by approximate boundaries and may be missing from some districts.";
-function districtCaveatBox(summary = "Agencies count in every district they touch") {
+function districtCaveatBox(summary = "Agencies count in every district with 1% of their residents") {
   return el("details", { class: "district-caveat" },
     el("summary", { text: summary }),
     el("span", { class: "district-caveat-body", text: `${districtCaveat()} ${DISTRICT_APPROX}` }));
@@ -2919,7 +2919,7 @@ function districtLines(name, opts) {
     const subset = rec.basis === "approximate" && /not mapped|may miss/i.test(rec.basis_note);
     box.append(el("div", { class: "muted district-basis" },
       `Placed by ${DISTRICT_BASIS[rec.basis]}${note ? `: ${note.replace(/\.$/, "")}` : ""}. Shares are of its 2020 residents. `,
-      districtCaveatBox(subset ? "May be missing from districts its unmapped territory touches" : "Listed in every district it touches")));
+      districtCaveatBox(subset ? "May be missing from districts its unmapped territory touches" : "Counted in every district with 1% of its residents")));
   };
   if (districts) fill();
   else ensureDistricts().then(fill, (err) => console.warn(err));
@@ -2996,13 +2996,19 @@ function districtAggregates() {
   const out = { districts, model, published };
   for (const ch of CHAMBERS) {
     const rows = districts.chambers[ch].map((c) => ({
-      n: c.n, label: c.label, counties: c.counties, agencies: [], muni: 0, muniFig: 0, school: 0, special: 0, figures: 0, sum: 0, withFigures: 0,
+      n: c.n, label: c.label, counties: c.counties, agencies: [], edges: [], muni: 0, muniFig: 0, school: 0, special: 0, figures: 0, sum: 0, withFigures: 0,
     }));
     for (const rec of districts.agencies()) {
       const pub = published.get(rec.key) || null;
       for (const d of rec[ch]) {
         const row = rows[d.n - 1];
         if (!row) continue;
+        // Under 1% of the agency's residents: a note on the district page,
+        // not a member of the district.
+        if (!d.counts) {
+          row.edges.push({ rec, d, pub });
+          continue;
+        }
         row.agencies.push({ rec, d, pub });
         if (rec.class === "municipal") {
           row.muni += 1;
@@ -3022,7 +3028,7 @@ function districtAggregates() {
   return out;
 }
 
-const DISTRICT_SUM_TIP = "Primary rows of every agency touching the district, each agency's whole total; an agency in several districts counts in each, so district sums overlap.";
+const DISTRICT_SUM_TIP = "Primary rows of every agency with at least 1% of its 2020 residents in the district, each agency's whole total; an agency in several districts counts in each, so district sums overlap.";
 
 function districtCallout() {
   const m = districts.meta;
@@ -3164,13 +3170,13 @@ function districtPage(agg, ch, row) {
     el("td", { text: x.pub ? fyRanges(x.pub.years) : "" }),
     el("td", { class: "col-fy", text: x.pub ? fmtFy(x.pub.years.at(-1)) : "" }),
     el("td", { class: "num", text: x.pub ? fmtSum(x.pub.sum) : "" }))));
-  if (!rows.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 9, text: "No mapped agency touches this district." })));
+  if (!rows.length) body.append(el("tr", { class: "empty-row" }, el("td", { colspan: 9, text: "No mapped agency has 1% of its residents in this district." })));
   return [
     el("div", { class: "dossier-head" },
       back,
       el("h2", { text: row.label }),
       el("div", { class: "dossier-meta" },
-        [`${fmtInt(rows.length)} agencies touching`, `${fmtInt(row.muni)} cities and counties`, `${fmtInt(row.school)} school districts`,
+        [`${fmtInt(rows.length)} agencies counted`, `${fmtInt(row.muni)} cities and counties`, `${fmtInt(row.school)} school districts`,
           `${fmtInt(row.special)} special districts`, `${fmtInt(row.figures)} published figures`]
           .map((t) => el("span", { text: t }))),
       el("p", { class: "muted", text: `Counties touched: ${row.counties.join(", ") || "none recorded"}.` }),
@@ -3195,7 +3201,19 @@ function districtPage(agg, ch, row) {
         sortHeader("Sum of primary rows", "sum", s, onSort, "num"))),
       body)),
     el("p", { class: "muted district-sum-note", text: `${DISTRICT_SUM_TIP} A missing year is missing, not zero.` }),
+    districtEdgeNote(row, ch),
   ];
+}
+
+// Agencies whose territory reaches the district with under 1% of their 2020
+// residents: named for reference, left out of the table, counts and sum.
+function districtEdgeNote(row, ch) {
+  if (!row.edges.length) return null;
+  const list = [...row.edges].sort((a, b) => (b.d.share ?? -1) - (a.d.share ?? -1) || a.rec.name.localeCompare(b.rec.name));
+  return el("details", { class: "district-edges" },
+    el("summary", { text: `Also touches ${fmtInt(list.length)} agenc${list.length === 1 ? "y" : "ies"} at the edge (under 1% of residents), not counted` }),
+    el("p", { class: "muted" }, list.flatMap((x, i) => [i ? ", " : null, districtAgencyLink(x, ch, row.n),
+      ` (${x.d.share === null || x.d.share === 0 ? "no residents" : `${sharePct(x.d.share)} of residents`})`])));
 }
 
 // ------------------------------------------------------------ FUNDS, SCHEDULES, PERMITS
@@ -3720,8 +3738,10 @@ function districtCsvColumns(agency) {
   };
   return [
     ...CHAMBERS.map((ch) => ({
+      // The districts the filter counts (1% of residents or more); the
+      // shares column below still names every district reached.
       key: `${CHAMBER[ch].csv}_districts_touching`,
-      value: (row) => rec(row)?.[ch].map((d) => d.n).sort((a, b) => a - b).join("; ") ?? "",
+      value: (row) => rec(row)?.[ch].filter((d) => d.counts).map((d) => d.n).sort((a, b) => a - b).join("; ") ?? "",
     })),
     ...CHAMBERS.map((ch) => ({
       key: `${CHAMBER[ch].csv}_district_resident_shares`,

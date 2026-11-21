@@ -33,10 +33,14 @@ TIGER polygon: the basis, the layer, the feature ids and a note.
 
 ## Caveat
 
-Each agency is listed under every Assembly and Senate district its territory
-reaches, even by a small part (for a special district, a part that holds a
-2020 census block or is over 100 meters wide), so many appear under more than
-one district and district totals overlap.
+`districts.json` lists every Assembly and Senate district an agency's
+territory reaches, even by a small part (for a special district, a part that
+holds a 2020 census block or is over 100 meters wide). The viewer counts an
+agency in a district only when at least 1% of its 2020 residents live there;
+an agency with no residents counts in every district it reaches. Districts
+below 1% are edge contacts: the agency's page and the district page name
+them, but filters, counts and district sums leave them out. Many agencies
+still count in more than one district, so district totals overlap.
 
 ## Rebuild
 

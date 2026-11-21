@@ -742,8 +742,12 @@ try {
   await fb.waitForFunction(() => document.querySelector(".dossier-head h2")?.textContent === "Assembly District 18");
   assert.equal(param(fb, "view"), "districts");
   assert.equal(param(fb, "dn"), "18");
-  const touching = districts.agencies().filter((r) => r.ad.some((d) => d.n === 18));
-  assert.equal(await fb.locator(".districts-grid tbody tr").count(), touching.length, "one row per agency touching AD 18");
+  const touching = districts.agencies().filter((r) => r.ad.some((d) => d.n === 18 && d.counts));
+  assert.equal(await fb.locator(".districts-grid tbody tr").count(), touching.length, "one row per agency with 1% of its residents in AD 18");
+  const edges18 = districts.agencies().filter((r) => r.ad.some((d) => d.n === 18 && !d.counts));
+  if (edges18.length) {
+    assert.match(await fb.locator(".district-edges summary").innerText(), new RegExp(`^Also touches ${edges18.length.toLocaleString("en-US")} agenc`), "edge contacts are named apart");
+  } else assert.equal(await fb.locator(".district-edges").count(), 0);
   // A row's first link is the agency; a row adding up several release names
   // lists them after it.
   const distRows = await fb.$$eval(".districts-grid tbody tr", (trs) => trs.map((tr) => [...tr.cells].map((td, i) => (i ? td.textContent : td.querySelector("a").textContent))));

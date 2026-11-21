@@ -52,7 +52,8 @@ function fixture() {
   assert.equal(d.lookup("City of Example"), ex, "a release name finds its record");
   assert.equal(d.lookup("Example"), ex, "an alias finds its record");
   assert.deepEqual(ex.ad.map((x) => [x.n, x.share, x.area_share, x.edge]), [[3, 0.95, 0.8, false], [1, 0.05, 0.15, false], [2, 0, 0.05, true]]);
-  assert.deepEqual(d.districtKeys("City of Example"), { ad: ["3", "1", "2"], sd: ["1"] });
+  assert.deepEqual(ex.ad.map((x) => x.counts), [true, true, false], "an edge contact does not count");
+  assert.deepEqual(d.districtKeys("City of Example"), { ad: ["3", "1"], sd: ["1"] }, "filters skip edge contacts");
   assert.ok(Object.isFrozen(ex) && Object.isFrozen(ex.ad) && Object.isFrozen(ex.ad[0]));
 
   assert.equal(d.lookup("Lakeside Union"), null, "two records share the name");
@@ -63,6 +64,8 @@ function fixture() {
   const empty = d.lookup("Empty District");
   assert.equal(empty.ad[0].share, null);
   assert.equal(empty.ad[0].edge, true, "no residents is an edge contact");
+  assert.equal(empty.ad[0].counts, true, "an agency with no residents counts where it reaches");
+  assert.deepEqual(d.districtKeys("Empty District"), { ad: ["7"], sd: ["4"] });
   assert.equal(empty.basis_note, "A note.");
   assert.equal(empty.county, "Alpha, Beta");
   assert.equal(d.lookup("Empty District", { county: "Beta" }), empty, "one candidate needs no filter");
@@ -187,6 +190,11 @@ const edges = (l) => nums(l.filter((x) => x.edge));
   assert.deepEqual(edges(sac), [7, 9]);
   assert.deepEqual(nums(d.lookup("Oakland city").sd), [7]);
   assert.deepEqual(d.districtKeys("Fremont city"), { ad: ["24"], sd: ["10"] });
+  // The 1% rule: edge contacts stay on the record but leave the filter.
+  assert.deepEqual(d.districtKeys("City and County of San Francisco").ad.sort(), ["17", "19"]);
+  assert.ok(!d.districtKeys("City and County of San Francisco").sd.includes("7"), "San Francisco does not count in SD 7");
+  assert.deepEqual(d.districtKeys("Sacramento city").ad.sort(), ["10", "6"]);
+  assert.deepEqual(d.districtKeys("San Leandro city"), { ad: ["20"], sd: ["9"] });
 
   // A 2020 block of the next county does not put a polygon in a district it
   // never reaches (AD 17 is San Francisco only; AD 12 holds no part of Napa).
