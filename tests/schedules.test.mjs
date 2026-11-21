@@ -586,9 +586,15 @@ const fetchOk = (text) => async (p) => {
   assert.equal(byClass(content, "schedules-head")[0].children[2].textContent, `${entityTypeLabel("special_district")} · 1 document · 1 row`);
   assert.deepEqual(texts(byTag(content, "h3")), ["All Beta Water District fees", "Water"]);
   assert.equal(byTag(content, "h4")[0].textContent, "Capacity Charge Capacity charge");
-  const heads = texts(byTag(content, "th"));
-  assert.deepEqual(heads, ["Applies to", "Amount", "Per", "Effective", "Printed", "Page"]);
-  const cells = texts(byTag(content, "tbody")[0].children[0].children.slice(0, 4));
+  // The grid: the fee down the side, each land use across the top.
+  const grid = byClass(content, "sched-grid")[0];
+  assert.deepEqual(texts(byTag(byTag(grid, "thead")[0], "th")), ["Fee", "Other", "Page"]);
+  assert.deepEqual(texts(byTag(grid, "tbody")[0].children.map((tr) => tr.children[0])), ["Water", "Capacity ChargeCapacity charge"]);
+  assert.equal(byTag(grid, "tbody")[0].children[1].children[1].textContent, "$0 per meter");
+  // The printed cells, as before, behind the grid.
+  const printed = byClass(content, "schedules-grid")[0];
+  assert.deepEqual(texts(byTag(printed, "th")), ["Applies to", "Amount", "Per", "Effective", "Printed", "Page"]);
+  const cells = texts(byTag(printed, "tbody")[0].children[0].children.slice(0, 4));
   assert.deepEqual(cells, ["3/4 inch meter", "$0", "per meter", "January 1, 2029"]);
 }
 
