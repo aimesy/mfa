@@ -450,7 +450,7 @@ const fetchOk = (text) => async (p) => {
   renderSchedules(content, ctx);
   await settle();
 
-  assert.deepEqual(texts(byClass(content, "tile-value")), [fmtInt(3), fmtInt(3), fmtInt(4), fmtInt(1)]);
+  assert.deepEqual(texts(byClass(content, "tile-value")), [], "no count tiles: the example table leads");
   assert.match(byClass(content, "schedules-rejected")[0].textContent, /^1 row set aside: they fail the schedule contract/);
   assert.match(byClass(content, "schedules-rejected")[0].textContent, /alpha-p9-001 rate does not match rate_as_printed/);
   assert.equal(byClass(content, "result-bar")[0].textContent, "5 rows · 3 agencies");
@@ -467,7 +467,7 @@ const fetchOk = (text) => async (p) => {
   const unpriced = byClass(content, "sched-unpriced");
   assert.deepEqual(texts(unpriced), ["N/A"]);
   assert.equal(unpriced[0].getAttribute("title"), "No amount printed in this cell");
-  assert.equal(texts(body.children[1].children.slice(4, 5))[0], "$0");
+  assert.equal(texts(body.children[1].children.slice(3, 4))[0], "$0");
 
   // Evidence: the release's copy when it holds the document, else the agency's file at that page.
   const alphaTr = body.children[2];
@@ -520,7 +520,7 @@ const fetchOk = (text) => async (p) => {
   assert.equal((await opts("scbasis")).length, 5);
   spec("sctype").apply("capacity_charge");
   assert.equal(byTag(content, "tbody")[0].textContent, "No rate matches these filters.");
-  assert.equal(byTag(content, "tbody")[0].children[0].children[0].getAttribute("colspan"), "11");
+  assert.equal(byTag(content, "tbody")[0].children[0].children[0].getAttribute("colspan"), "10");
   // A tag removes its filter.
   byClass(content, "filter-tag").find((t) => t.textContent.startsWith("Fee type")).fire("click");
   assert.equal(countText(), "1 row · 1 agency");
@@ -553,7 +553,7 @@ const fetchOk = (text) => async (p) => {
   // Sorting by rate puts the largest first and the unpriced cell last.
   const rateTh = byTag(content, "th").find((th) => th.textContent === "Rate");
   byTag(rateTh, "button")[0].fire("click");
-  const rateCol = () => texts(byTag(content, "tbody")[0].children.map((tr) => tr.children[4]));
+  const rateCol = () => texts(byTag(content, "tbody")[0].children.map((tr) => tr.children[3]));
   assert.deepEqual(rateCol(), ["$1,200.50", "$300", "$5.17", "$0", "N/A"]);
   assert.equal(byTag(content, "th").find((th) => th.textContent === "Rate").getAttribute("aria-sort"), "descending");
   byTag(byTag(content, "th").find((th) => th.textContent === "Rate"), "button")[0].fire("click");
