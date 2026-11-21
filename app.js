@@ -3249,6 +3249,7 @@ function schedulesCtx() {
     ...libCtx(),
     fetchText, officialUrl, openDoc,
     sourceById: model.sourceById,
+    sourceIdBySha: new Map(model.sources.filter((x) => x.source_sha256).map((x) => [x.source_sha256, x.source_id])),
     agencyHref: (name) => hrefWith({ view: "schedules", scagency: name }),
     selection: state.sc,
     isCurrent: () => state.view === "schedules",
