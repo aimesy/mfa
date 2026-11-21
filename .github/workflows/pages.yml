@@ -172,5 +172,16 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
-      - id: deployment
+      # deploy-pages sometimes runs before GitHub lists the artifact it was
+      # just given ("No artifacts named github-pages were found"); wait and
+      # try once more instead of failing the push.
+      - id: first
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+      - if: steps.first.outcome == 'failure'
+        run: sleep 30
+      - id: retry
+        if: steps.first.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+      - id: deployment
+        run: echo "page_url=${{ steps.first.outputs.page_url || steps.retry.outputs.page_url }}" >> "$GITHUB_OUTPUT"
