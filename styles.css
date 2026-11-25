@@ -424,6 +424,10 @@ a.badge.tag:hover { border-color: var(--ink-3); background: var(--paper-3); text
 /* No box of its own, so the sticky rules below can travel the width of .content. */
 .dossier-permits { display: contents; }
 .dossier-permits .tiles, .dossier-permits .note, .dossier-permits .muted { position: sticky; left: 0; padding: 0 0.85rem; }
+.dossier-permits .payments-fees { padding: 0.3rem 0.85rem; }
+.payments-list { width: auto; }
+.payments-list th[scope="row"] { text-align: left; font-weight: 400; }
+.payments-list tfoot th, .payments-list tfoot td { font-weight: 700; }
 .dossier-permits .tiles { max-width: 1000px; margin: 0.4rem 0 0.6rem; }
 .section-label {
   position: sticky;

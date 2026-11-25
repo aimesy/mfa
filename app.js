@@ -35,6 +35,7 @@ import {
   exportPermits,
 } from "./lib/apr-view.js";
 import { renderFunds, exportFunds } from "./lib/funds-view.js";
+import { renderEntityPayments } from "./lib/payments.js";
 import { renderSchedules, exportSchedules, SELECTION_KEYS as SCHEDULE_KEYS, SELECTION_PARTS as SCHEDULE_PARTS } from "./lib/schedules-view.js";
 
 // ============================================================ CONFIG
@@ -1629,15 +1630,18 @@ function renderEntityDossier(content) {
 
   const sources = [...e.sources].map((id) => model.sourceById.get(id)).filter(Boolean)
     .sort((a, b) => String(a.covers_fiscal_year).localeCompare(String(b.covers_fiscal_year)));
+  const payments = el("section", { class: "dossier-permits" });
   const permits = el("section", { class: "dossier-permits" });
 
   content.append(
     head,
     el("div", { class: "table-scroll" }, el("table", { class: "grid matrix" }, thead, tbody, tfoot)),
+    payments,
     permits,
     el("h3", { class: "section-label", text: `Reports (${sources.length})` }),
     sourcesTable(sources, { compact: true }),
   );
+  renderEntityPayments(payments, e, { fetchText });
   renderEntityPermits(permits, e, permitsCtx());
 }
 
